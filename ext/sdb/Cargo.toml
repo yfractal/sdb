@@ -1,0 +1,12 @@
+[package]
+name = "sdb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mike Yang <yfractal@gmail.com>"]
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
