@@ -231,7 +231,7 @@ fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
 #[no_mangle]
 extern "C" fn Init_sdb() {
     unsafe {
-        let module = rb_define_module("Dldb\0".as_ptr() as *const c_char);
+        let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
         let busy_pull_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE) -> VALUE,

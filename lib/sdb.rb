@@ -2,11 +2,10 @@
 
 require_relative "sdb/version"
 require_relative "sdb/sdb"
+require_relative "sdb/puma_patch"
 
 module Sdb
-  class Error < StandardError; end
-
-  class < self
+  class << self
     def fetch_puma_threads
       # keep a reference as puller runs without gvl
       @threads = []
