@@ -1,10 +1,11 @@
 use libc::c_char;
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2,
-    rb_num2ulong, rb_string_value_cstr, rb_thread_call_without_gvl2, RArray, RString, RTypedData,
-    ID, RARRAY_LEN, Qtrue, VALUE
+    rb_num2ulong, rb_string_value_cstr, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue,
+    RArray, RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
+use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
 
 use chrono::Utc;
@@ -42,16 +43,17 @@ fn get_trace_id_table() -> &'static mut HashMap<u64, u64> {
     }
 }
 
-pub unsafe extern "C" fn set_trace_id(
-    _module: VALUE,
-    thread: VALUE,
-    trace_id: VALUE,
-) -> VALUE {
+pub unsafe extern "C" fn set_trace_id(_module: VALUE, thread: VALUE, trace_id: VALUE) -> VALUE {
     let trace_table = get_trace_id_table();
 
     trace_table.insert(thread, rb_num2ulong(trace_id));
 
     Qtrue as VALUE
+}
+
+unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
+    let klass = *(val as VALUE as *mut RBasic);
+    klass.flags & 0x1f
 }
 
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
@@ -95,9 +97,28 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                 let addr = *iseq_addr;
 
                 let iseq = &*(addr as *const rb_iseq_struct);
-                let body = &*iseq.body;
+                // let class = iseq as VALUE as *mut RBasic;
+                let body = *iseq.body;
+                let body_type = rb_type(iseq.body as VALUE);
+
+                // Method can be reclaimed and its memory can be assigned to other objects,
+                // only log the method info when body_type is right to avoid segment fault.
+                // This is a temporary solution as it can't avoid all potential problems
+                if body_type != RUBY_T_OBJECT as u64
+                    && body_type != RUBY_T_CLASS as u64
+                    && body_type != RUBY_T_MODULE as u64
+                {
+                    log::debug!(
+                        "addr={}, iseq_type={}, body_type={}\n",
+                        addr,
+                        rb_type(addr),
+                        body_type
+                    );
+                    continue;
+                }
+
                 let mut label = body.location.label as VALUE;
-                let label_str = rb_string_value_cstr(&mut label);
+                let label_str = rb_string_value_ptr(&mut label);
 
                 let rstring = &*(label as *mut RString);
                 let str_class = rstring.basic.klass;
@@ -105,7 +126,7 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                 let mut pathobj = body.location.pathobj as VALUE;
                 let pathobj_str = &*(pathobj as *mut RString);
                 if pathobj_str.basic.klass == str_class {
-                    let path_str = rb_string_value_cstr(&mut pathobj);
+                    let path_str = rb_string_value_ptr(&mut pathobj);
                     log = format!(
                         "{},[{},{},{}]",
                         log,
@@ -116,7 +137,7 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                 } else {
                     let pathobj_arr = &*(pathobj as *mut RArray);
                     let mut path_addr = pathobj_arr.as_.ary[0] as VALUE;
-                    let path_str = rb_string_value_cstr(&mut path_addr);
+                    let path_str = rb_string_value_ptr(&mut path_addr);
                     log = format!(
                         "{},[{},{},{}]",
                         log,
@@ -127,6 +148,7 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                 }
             }
 
+            iseqs = HashSet::new();
             log::info!("[methods]{}", log);
             loop_times = 0;
         }
@@ -141,8 +163,8 @@ unsafe extern "C" fn record_thread_frames(
 ) {
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
-    let thread_ref = &*thread_struct_ptr;
-    let ec = &*thread_ref.ec;
+    let thread = *thread_struct_ptr;
+    let ec = *thread.ec;
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
@@ -197,19 +219,9 @@ pub fn internal_id(string: &str) -> ID {
 }
 
 #[inline]
-unsafe fn call_method(
-    receiver: VALUE,
-    method: &str,
-    argc: c_int,
-    argv: &[VALUE],
-) -> VALUE {
+unsafe fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VALUE]) -> VALUE {
     let id = internal_id(method);
-    rb_funcallv(
-        receiver,
-        id,
-        argc,
-        argv as *const [VALUE] as *const VALUE,
-    )
+    rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE)
 }
 
 #[inline]
