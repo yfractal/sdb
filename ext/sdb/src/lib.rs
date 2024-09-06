@@ -1,8 +1,8 @@
 use libc::c_char;
 use rb_sys::{
-    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2,
-    rb_num2ulong, rb_string_value_cstr, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue,
-    RArray, RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_num2int,
+    rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray, RBasic, RString,
+    RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
@@ -125,25 +125,28 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
 
                 let mut pathobj = body.location.pathobj as VALUE;
                 let pathobj_str = &*(pathobj as *mut RString);
+                let first_lineno = rb_num2int(body.location.first_lineno as VALUE);
                 if pathobj_str.basic.klass == str_class {
                     let path_str = rb_string_value_ptr(&mut pathobj);
                     log = format!(
-                        "{},[{},{},{}]",
+                        "{},[{},{},{},{}]",
                         log,
                         addr,
                         CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap()
+                        CStr::from_ptr(path_str).to_str().unwrap(),
+                        first_lineno
                     )
                 } else {
                     let pathobj_arr = &*(pathobj as *mut RArray);
                     let mut path_addr = pathobj_arr.as_.ary[0] as VALUE;
                     let path_str = rb_string_value_ptr(&mut path_addr);
                     log = format!(
-                        "{},[{},{},{}]",
+                        "{},[{},{},{},{}]",
                         log,
                         addr,
                         CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap()
+                        CStr::from_ptr(path_str).to_str().unwrap(),
+                        first_lineno
                     )
                 }
             }
