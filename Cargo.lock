@@ -568,8 +568,10 @@ dependencies = [
 name = "sdb-shim"
 version = "0.1.0"
 dependencies = [
+ "fast_log",
  "libc",
  "libloading",
+ "log",
 ]
 
 [[package]]
