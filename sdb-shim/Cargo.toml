@@ -1,0 +1,11 @@
+[package]
+name = "sdb-shim"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2.155"
+libloading = "0.8.5"

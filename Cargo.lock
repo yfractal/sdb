@@ -565,6 +565,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdb-shim"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libloading",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.209"
 source = "registry+https://github.com/rust-lang/crates.io-index"
