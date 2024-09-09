@@ -1,16 +1,18 @@
 use libc::c_char;
 use rb_sys::{
-    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_num2int,
-    rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray, RBasic, RString,
-    RTypedData, ID, RARRAY_LEN, VALUE, rb_ll2inum
+    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
+    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray,
+    RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{
+    rb_control_frame_struct, rb_global_vm_lock_t, rb_iseq_struct, rb_thread_t,
+};
 
 use chrono::Utc;
 use fast_log::config::Config;
-use libc::{c_int, c_long, c_void};
+use libc::{c_int, c_long, c_void, pthread_self, pthread_t};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::{ptr, slice};
@@ -54,11 +56,22 @@ pub unsafe extern "C" fn set_trace_id(_module: VALUE, thread: VALUE, trace_id: V
 #[no_mangle]
 pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALUE {
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
+    let ptr = (*thread_ptr).data as *mut rb_thread_t;
     let thread_struct = *((*thread_ptr).data as *mut rb_thread_t);
-    let reactor = *(thread_struct.ractor);
-    let lock_addr = &reactor.threads.gvl.lock as *const _ as u64;
+    // access gvl_addr through offset directly
+    let gvl_addr = thread_struct.ractor as u64 + 344;
 
-    log::info!("[lock] gvl_address={}", lock_addr);
+    let gvl_ref = gvl_addr as *mut rb_global_vm_lock_t;
+    let lock_addr = &((*gvl_ref).lock) as *const _ as u64;
+    let tid: pthread_t = pthread_self();
+
+    log::info!(
+        "[lock] tid={}, rb_thread_addr={}, gvl_address={}, lock_addr={}",
+        tid,
+        ptr as u64,
+        gvl_addr,
+        lock_addr
+    );
 
     rb_ll2inum(lock_addr as i64) as VALUE
 }
