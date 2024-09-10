@@ -21,5 +21,9 @@ module Sdb
     def current_thread
       @current_thread ||= Thread.current
     end
+
+    def log_gvl_addr
+      log_gvl_addr_for_thread(Thread.current)
+    end
   end
 end

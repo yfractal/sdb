@@ -1,16 +1,18 @@
 use libc::c_char;
 use rb_sys::{
-    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_num2int,
-    rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray, RBasic, RString,
-    RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
+    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray,
+    RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{
+    rb_control_frame_struct, rb_global_vm_lock_t, rb_iseq_struct, rb_thread_t,
+};
 
 use chrono::Utc;
 use fast_log::config::Config;
-use libc::{c_int, c_long, c_void};
+use libc::{c_int, c_long, c_void, pthread_self, pthread_t};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::{ptr, slice};
@@ -51,6 +53,26 @@ pub unsafe extern "C" fn set_trace_id(_module: VALUE, thread: VALUE, trace_id: V
     Qtrue as VALUE
 }
 
+pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALUE {
+    let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
+    let rb_thread_ptr = (*thread_ptr).data as *mut rb_thread_t;
+
+    // access gvl_addr through offset directly
+    let gvl_addr = (*rb_thread_ptr).ractor as u64 + 344;
+    let gvl_ref = gvl_addr as *mut rb_global_vm_lock_t;
+    let lock_addr = &((*gvl_ref).lock) as *const _ as u64;
+    let tid: pthread_t = pthread_self();
+
+    log::info!(
+        "[lock] thread_id={}, rb_thread_addr={}, gvl_mutex_addr={}",
+        tid,
+        rb_thread_ptr as u64,
+        lock_addr
+    );
+
+    rb_ll2inum(lock_addr as i64) as VALUE
+}
+
 unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     let klass = *(val as VALUE as *mut RBasic);
     klass.flags & 0x1f
@@ -60,7 +82,6 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     let data: &mut BusyPullData = ptr_to_struct(data);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
-    fast_log::init(Config::new().file("frames.log").chan_len(Some(10_000_000))).unwrap();
 
     init_trace_id_table();
     let trace_table = get_trace_id_table();
@@ -245,6 +266,8 @@ fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn Init_sdb() {
+    fast_log::init(Config::new().file("sdb.log").chan_len(Some(1))).unwrap();
+
     unsafe {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
@@ -252,7 +275,6 @@ extern "C" fn Init_sdb() {
             unsafe extern "C" fn(VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
         >(busy_pull);
-
         rb_define_singleton_method(
             module,
             "busy_pull\0".as_ptr() as _,
@@ -264,12 +286,22 @@ extern "C" fn Init_sdb() {
             unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
         >(set_trace_id);
-
         rb_define_singleton_method(
             module,
             "set_trace_id\0".as_ptr() as _,
             Some(set_trace_id_callback),
             2,
+        );
+
+        let log_gvl_addr_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(log_gvl_addr);
+        rb_define_singleton_method(
+            module,
+            "log_gvl_addr_for_thread\0".as_ptr() as _,
+            Some(log_gvl_addr_callback),
+            1,
         );
     }
 }

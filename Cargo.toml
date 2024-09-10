@@ -3,5 +3,5 @@
 # in the ext/ directory.
 
 [workspace]
-members = ["./ext/sdb"]
+members = ["./ext/sdb", "sdb-shim"]
 resolver = "2"
