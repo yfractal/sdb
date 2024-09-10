@@ -23,7 +23,7 @@ static mut REAL_PTHREAD_COND_SIGNAL: Option<
 
 unsafe fn init_once() {
     INIT.call_once(|| {
-        fast_log::init(Config::new().file("lock.log").chan_len(Some(1_000_000))).unwrap();
+        fast_log::init(Config::new().file("sdb-lock.log").chan_len(Some(1_000_000))).unwrap();
 
         let lib = Library::new("libpthread.so.0").expect("Failed to load libpthread");
 
