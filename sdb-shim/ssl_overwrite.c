@@ -135,6 +135,16 @@ extern int __interpose_SSL_read (void *ssl, void *buf, int num) {
     fprintf(__stderrp, "body bytes:\n");
     print_bytes_as_hex((const unsigned char *)(buf + body_offset), ret - body_offset);
 
+    size_t decoded_len;
+    unsigned char *decoded_body = read_chunked_http_body((const unsigned char *)(buf + body_offset), ret - body_offset, &decoded_len);
+
+    if (decoded_body != NULL) {
+      fprintf(__stderrp, "decoded_body:\n");
+      print_bytes_as_hex(decoded_body, decoded_len);
+
+      free(decoded_body);
+    }
+
     // fprintf(__stderrp, "headers bytes:\n");
     // print_bytes_as_hex((const unsigned char *)headers, strlen(headers));
 
