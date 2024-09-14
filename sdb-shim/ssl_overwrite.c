@@ -2,7 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <zlib.h>
 #include "openssl/ssl.h"
+
+#define CHUNK 16384
 
 // compile:
 // gcc -I/opt/homebrew/Cellar/openssl@1.1/1.1.1w/include -L/opt/homebrew/Cellar/openssl@1.1/1.1.1w/lib -lssl -lcrypto -shared -fPIC -o ssl_overwrite.dylib ssl_overwrite.c
@@ -97,7 +100,6 @@ unsigned char *read_chunked_http_body(const unsigned char *body, size_t body_len
 }
 
 int http_body_offset(const char* http_str) {
-    // Find the position of the "\r\n\r\n" delimiter
     const char* delimiter = "\r\n\r\n";
     char* split_pos = strstr(http_str, delimiter);
 
@@ -121,6 +123,34 @@ void print_bytes_as_hex(const unsigned char* data, size_t length) {
     fprintf(__stderrp, "\n");
 }
 
+int decompress_gzip(const unsigned char *compressed_data, size_t compressed_data_len, unsigned char *output, size_t output_len) {
+    int ret;
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));  // Initialize z_stream structure
+
+    // Initialize inflation (decompression)
+    ret = inflateInit2(&strm, 16 + MAX_WBITS);  // 16 + MAX_WBITS to support gzip
+    if (ret != Z_OK) {
+        return ret;
+    }
+
+    strm.next_in = (unsigned char *)compressed_data;
+    strm.avail_in = compressed_data_len;
+    strm.next_out = output;
+    strm.avail_out = output_len;
+
+    // Perform the decompression
+    ret = inflate(&strm, Z_NO_FLUSH);
+    if (ret != Z_STREAM_END) {
+        inflateEnd(&strm);
+        return ret == Z_OK ? Z_BUF_ERROR : ret;
+    }
+
+    // Cleanup
+    inflateEnd(&strm);
+    return Z_OK;
+}
+
 extern int __interpose_SSL_read (void *ssl, void *buf, int num) {
   int ret = Real__SSL_read(ssl, buf, num);
   char* headers = NULL;
@@ -142,37 +172,20 @@ extern int __interpose_SSL_read (void *ssl, void *buf, int num) {
       fprintf(__stderrp, "decoded_body:\n");
       print_bytes_as_hex(decoded_body, decoded_len);
 
+      // Buffer for the decompressed output (Make sure it's large enough for decompressed data)
+      unsigned char decompressed_output[CHUNK];
+      size_t output_len = CHUNK;
+
+      // Decompress the gzip data
+      int ret = decompress_gzip(decoded_body, ret - body_offset, decompressed_output, output_len);
+      if (ret == Z_OK) {
+          printf("Decompressed body: %s\n", decompressed_output);
+      } else {
+          printf("Decompression failed with error code: %d\n", ret);
+      }
+
       free(decoded_body);
     }
-
-    // fprintf(__stderrp, "headers bytes:\n");
-    // print_bytes_as_hex((const unsigned char *)headers, strlen(headers));
-
-    // fprintf(__stderrp, "raw_body bytes:\n");
-    // print_bytes_as_hex((const unsigned char *)raw_body, ret - strlen(headers));
-
-    // fprintf(__stderrp, "[split_http] total_len=%d, header len=%lu, body len=%lu\n", ret, strlen(headers), strlen(raw_body));
-
-    // fprintf(__stderrp, "Headers:\n%s\n\n", headers);
-
-    // if (raw_body != NULL) {
-    //     fprintf(__stderrp, "Raw Body:\n len=%lu, len2=%lu, body=%s, \n\n\n", strlen(raw_body), ret - strlen(headers), raw_body);
-    //     print_bytes_as_hex((const unsigned char *)raw_body, ret - strlen(headers));
-
-    //     size_t decoded_len;
-
-    //     unsigned char *decoded_body = read_chunked_http_body((const unsigned char *)raw_body, ret - strlen(headers) + 1, &decoded_len);
-    //     if (decoded_body != NULL) {
-    //         printf("Decoded Body: %.*s\n", (int)decoded_len, decoded_body);
-    //         free(decoded_body);
-    //     }
-
-    // }
-
-    // free(headers);
-    // if (raw_body != NULL) {
-    //     free(raw_body);
-    // }
   }
 
   return ret;
