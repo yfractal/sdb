@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <zlib.h>
 #include "openssl/ssl.h"
+#include "sys/socket.h"
 
 #define CHUNK 16384
 
@@ -21,6 +22,12 @@ static const struct __osx_interpose __osx_interpose_SSL_read __attribute__((used
   { (const void*)((uintptr_t)(&(__interpose_SSL_read))),
     (const void*)((uintptr_t)(&(SSL_read))) };
 
+static ssize_t Real__read (int socket, void *buffer, size_t length) { return read(socket, buffer, length); }
+extern ssize_t __interpose_read (int, void *, size_t);
+
+static const struct __osx_interpose __osx_interpose_read __attribute__((used, section("__DATA, __interpose"))) =
+  { (const void*)((uintptr_t)(&(__interpose_read))),
+    (const void*)((uintptr_t)(&(read))) };
 
 const unsigned char *skip_crlf(const unsigned char *body) {
     assert(strncmp((const char *)body, "\r\n", 2) == 0);
@@ -172,4 +179,14 @@ extern int __interpose_SSL_read (void *ssl, void *buf, int num) {
   }
 
   return ret;
+}
+
+extern ssize_t __interpose_read(int socket, void *buffer, size_t length) {
+    ssize_t ret = Real__read(socket, buffer, length);
+    if (ret > 0) {
+        print_buffer(buffer, ret);
+    }
+
+    // printf("read socket=%d, %zu, rt=%zd\n", socket, length, ret);
+    return ret;
 }
