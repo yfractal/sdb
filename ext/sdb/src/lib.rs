@@ -213,9 +213,8 @@ unsafe extern "C" fn record_thread_frames(
     log::info!("[stack_frames][{}]", log);
 }
 
-unsafe extern "C" fn busy_pull(module: VALUE) -> VALUE {
+unsafe extern "C" fn busy_pull(module: VALUE, threads: VALUE) -> VALUE {
     let argv: &[VALUE; 0] = &[];
-    let threads = call_method(module, "fetch_puma_threads", 0, argv);
     let current_thread = call_method(module, "current_thread", 0, argv);
 
     let mut data = BusyPullData {
@@ -272,14 +271,14 @@ extern "C" fn Init_sdb() {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
         let busy_pull_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
         >(busy_pull);
         rb_define_singleton_method(
             module,
             "busy_pull\0".as_ptr() as _,
             Some(busy_pull_callback),
-            0,
+            1,
         );
 
         let set_trace_id_callback = std::mem::transmute::<
