@@ -73,6 +73,13 @@ pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALU
     rb_ll2inum(lock_addr as i64) as VALUE
 }
 
+pub unsafe extern "C" fn log(_module: VALUE, mut rb_str: VALUE) -> VALUE {
+    let s = rb_string_value_ptr(&mut rb_str);
+    log::info!("[thread] {}",  CStr::from_ptr(s).to_str().unwrap());
+
+    rb_str
+}
+
 unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     let klass = *(val as VALUE as *mut RBasic);
     klass.flags & 0x1f
@@ -302,5 +309,11 @@ extern "C" fn Init_sdb() {
             Some(log_gvl_addr_callback),
             1,
         );
+
+        let log_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(log);
+        rb_define_singleton_method(module, "log\0".as_ptr() as _, Some(log_callback), 1);
     }
 }
