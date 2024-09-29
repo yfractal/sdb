@@ -89,10 +89,12 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     let mut i = 0;
 
     // init for avoding reallocation as it is accessed without any locks
+    // program can insert before init which may cause issuess ...
     while i < threads_count {
         let argv = &[rb_int2inum(i)];
         let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
-        trace_table.insert(thread, 0);
+
+        trace_table.entry(thread).or_insert(0);
 
         i += 1
     }
