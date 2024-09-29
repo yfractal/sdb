@@ -73,13 +73,6 @@ pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALU
     rb_ll2inum(lock_addr as i64) as VALUE
 }
 
-pub unsafe extern "C" fn log(_module: VALUE, mut rb_str: VALUE) -> VALUE {
-    let s = rb_string_value_ptr(&mut rb_str);
-    log::info!("[thread] {}",  CStr::from_ptr(s).to_str().unwrap());
-
-    rb_str
-}
-
 unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     let klass = *(val as VALUE as *mut RBasic);
     klass.flags & 0x1f
@@ -96,10 +89,12 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     let mut i = 0;
 
     // init for avoding reallocation as it is accessed without any locks
+    // program can insert before init which may cause issuess ...
     while i < threads_count {
         let argv = &[rb_int2inum(i)];
         let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
-        trace_table.insert(thread, 0);
+
+        trace_table.entry(thread).or_insert(0);
 
         i += 1
     }
@@ -309,11 +304,5 @@ extern "C" fn Init_sdb() {
             Some(log_gvl_addr_callback),
             1,
         );
-
-        let log_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
-            unsafe extern "C" fn() -> VALUE,
-        >(log);
-        rb_define_singleton_method(module, "log\0".as_ptr() as _, Some(log_callback), 1);
     }
 }
