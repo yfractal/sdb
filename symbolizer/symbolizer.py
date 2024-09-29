@@ -38,26 +38,46 @@ struct event_t {
     u32 first_lineno;
     char name[128];
     char path[128];
+    u32 debug;
 };
 
-static inline void read_rstring(struct RString *name, char *buff) {
+static inline int get_embed_ary_len(char *ary, int max_len) {
+    int len = 0;
+
+    for (int i = 0; i < max_len; i++) {
+        char c;
+        bpf_probe_read(&c, sizeof(c), &ary[i]);
+        if (c == '\\0') {
+            break;
+        }
+        len++;
+    }
+    return len;
+}
+
+static inline int read_rstring(struct RString *str, char *buff) {
     u64 flags;
     char *ptr;
     unsigned long len;
 
-    bpf_probe_read(&flags, sizeof(flags), &name->basic.flags);
+    bpf_probe_read(&flags, sizeof(flags), &str->basic.flags);
 
     // Check if the string is embedded or heap-allocated
     if (flags & (1 << 13)) {
-        bpf_probe_read(&len, sizeof(len), &name->as.heap.len);
-        bpf_probe_read(&ptr, sizeof(ptr), &name->as.heap.ptr);
+        bpf_probe_read(&len, sizeof(len), &str->as.heap.len);
+        bpf_probe_read(&ptr, sizeof(ptr), &str->as.heap.ptr);
 
         if (ptr) {
             bpf_probe_read_str(buff, (len &= 0x7F) + 1, ptr);
         }
+
+        return 1;
     } else {
         bpf_trace_printk("branch 2", sizeof("branch 2"));
-        bpf_probe_read_str(buff, sizeof(buff), name->as.embed.ary);
+        int len = get_embed_ary_len(str->as.embed.ary, 128);
+        bpf_probe_read_str(buff, (len &= 0x7F) + 1, str->as.embed.ary);
+
+        return 2;
     }
 }
 
@@ -84,7 +104,8 @@ int rb_iseq_new_with_opt_instrument(struct pt_regs *ctx) {
 
     struct RString *name;
     bpf_probe_read(&name, sizeof(name), (void *)&PT_REGS_PARM2(ctx));
-    read_rstring(name, event.name);
+    int i = read_rstring(name, event.name);
+    event.debug = i;
 
     struct RString *path;
     bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM3(ctx));
@@ -111,12 +132,13 @@ class Event(ctypes.Structure):
         ("ts", ctypes.c_uint64),
         ("first_lineno", ctypes.c_uint32),
         ("name", ctypes.c_char * 128),
-        ("path", ctypes.c_char * 128)
+        ("path", ctypes.c_char * 128),
+        ("debug", ctypes.c_uint32),
     ]
 
 def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
-    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}, {event.path}\n")
+    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}, {event.path}, {event.debug}\n")
 
 b["events"].open_perf_buffer(print_event, 1024)
 
