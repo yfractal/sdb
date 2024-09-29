@@ -36,6 +36,7 @@ struct event_t {
     u32 tid;
     u64 ts;
     u32 first_lineno;
+    char name[256];
 };
 
 // ruby 3.1.5
@@ -59,11 +60,27 @@ int rb_iseq_new_with_opt_instrument(struct pt_regs *ctx) {
     bpf_probe_read(&first_lineno, sizeof(first_lineno), (void *)&PT_REGS_PARM5(ctx));
     event.first_lineno = (long)(first_lineno) >> 1;
 
+    struct RString *name;
+    bpf_probe_read(&name, sizeof(name), (void *)&PT_REGS_PARM2(ctx));
+
+    u64 flags;
+    char *ptr;
+    bpf_probe_read(&flags, sizeof(flags), &name->basic.flags);
+    event.ts = flags;
+
+    if ((flags & (1 << 13)) == 0) {
+        bpf_probe_read_str(event.name, sizeof(event.name), name->as.embed.ary);
+    } else {
+        bpf_probe_read(&ptr, sizeof(ptr), &name->as.heap.ptr);
+        bpf_probe_read_str(event.name, sizeof(event.name), ptr);
+    }
+
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
 """
+
 
 b = BPF(text=bpf_text)
 
@@ -78,11 +95,12 @@ class Event(ctypes.Structure):
         ("tid", ctypes.c_uint32),
         ("ts", ctypes.c_uint64),
         ("first_lineno", ctypes.c_uint32),
+        ("name", ctypes.c_char * 256)
     ]
 
 def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
-    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}\n")
+    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}\n")
 
 b["events"].open_perf_buffer(print_event, 512)
 
