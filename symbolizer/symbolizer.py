@@ -38,8 +38,11 @@ struct event_t {
     u32 first_lineno;
     char name[128];
     char path[128];
+    u64 iseq_addr;
     u32 debug;
 };
+
+BPF_HASH(events_map, u64, struct event_t);
 
 static inline int get_embed_ary_len(char *ary, int max_len) {
     int len = 0;
@@ -111,7 +114,21 @@ int rb_iseq_new_with_opt_instrument(struct pt_regs *ctx) {
     bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM3(ctx));
     read_rstring(path, event.path);
 
-    events.perf_submit(ctx, &event, sizeof(event));
+    events_map.update(&pid_tgid, &event);
+
+    return 0;
+}
+
+int rb_iseq_new_with_opt_return(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 ret_val = PT_REGS_RC(ctx);
+    struct event_t *event = events_map.lookup(&pid_tgid);
+    if (event == 0) {
+        return 0;
+    }
+
+    event->iseq_addr = ret_val;
+    events.perf_submit(ctx, event, sizeof(*event));
 
     return 0;
 }
@@ -124,6 +141,7 @@ binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
 
 # TODO: probe other methods
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_instrument")
+b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_return")
 
 class Event(ctypes.Structure):
     _fields_ = [
@@ -134,11 +152,12 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * 128),
         ("path", ctypes.c_char * 128),
         ("debug", ctypes.c_uint32),
+        ("iseq_addr", ctypes.c_uint64),
     ]
 
 def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
-    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}, {event.path}, {event.debug}\n")
+    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}, {event.path}, {event.debug}, {event.iseq_addr}\n")
 
 b["events"].open_perf_buffer(print_event, 1024)
 

@@ -1,8 +1,15 @@
-def a
+require 'sdb'
+
+Thread.new do
+  sleep 1
+  Sdb.busy_pull(Thread.list)
+end
+
+def xxxxxx
 end
 
 def b
-  a
+  xxxxxx
 end
 
 def c
@@ -13,12 +20,13 @@ def d
   c
 end
 
-def f
+def fffffff
+  sleep 0.5
   d
 end
 
 loop do
-  sleep 1
+  sleep 0.5
   puts "looping"
-  f
+  fffffff
 end
