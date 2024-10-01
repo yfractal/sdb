@@ -6,6 +6,7 @@ Thread.new do
 end
 
 def xxxxxx
+  sleep 0.1
 end
 
 def b
@@ -21,12 +22,10 @@ def d
 end
 
 def fffffff
-  sleep 0.5
   d
 end
 
 loop do
-  sleep 0.5
   puts "looping"
   fffffff
 end
