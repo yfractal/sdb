@@ -1,5 +1,6 @@
 from bcc import BPF
 import ctypes
+import json
 
 bpf_text = """
 #include <uapi/linux/ptrace.h>
@@ -155,9 +156,23 @@ class Event(ctypes.Structure):
         ("iseq_addr", ctypes.c_uint64),
     ]
 
+    def to_dict(self):
+        data = {
+            "pid": self.pid,
+            "tid": self.tid,
+            "ts": self.ts,
+            "first_lineno": self.first_lineno,
+            "name": self.name.decode('utf-8').rstrip('\x00'),
+            "path": self.path.decode('utf-8').rstrip('\x00'),
+            "iseq_addr": self.iseq_addr,
+            "debug": self.debug,
+        }
+
+        return data
+
 def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
-    print(f"{event.tid}, {event.pid}, {event.ts}, {event.first_lineno}, {event.name}, {event.path}, {event.debug}, {event.iseq_addr}\n")
+    print(json.dumps(event.to_dict()))
 
 b["events"].open_perf_buffer(print_event, 1024)
 
