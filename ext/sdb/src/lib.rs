@@ -1,8 +1,8 @@
 use libc::c_char;
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray,
-    RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_with_gvl,
+    rb_thread_call_without_gvl2, Qtrue, RArray, RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
@@ -21,6 +21,10 @@ use std::{ptr, slice, thread};
 struct BusyPullData {
     current_thread: VALUE,
     threads: VALUE,
+}
+
+struct LogIseqsData {
+    iseqs: HashSet<u64>,
 }
 
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
@@ -88,11 +92,22 @@ fn consume_iseq(rx: mpsc::Receiver<u64>) {
         i += 1;
 
         if i >= 1000 {
+            let mut data = LogIseqsData {
+                iseqs: iseqs.clone(),
+            };
+
             unsafe {
-                log_iseq(&iseqs);
+                rb_thread_call_with_gvl(Some(log_iseq_helper), struct_to_ptr(&mut data));
             }
         }
     }
+}
+
+unsafe extern "C" fn log_iseq_helper(data: *mut c_void) -> *mut c_void {
+    let data: &mut LogIseqsData = ptr_to_struct(data);
+    log_iseq(&data.iseqs);
+
+    ptr::null_mut()
 }
 
 unsafe fn log_iseq(iseqs: &HashSet<u64>) {
