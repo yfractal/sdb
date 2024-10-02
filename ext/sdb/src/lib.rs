@@ -15,7 +15,8 @@ use fast_log::config::Config;
 use libc::{c_int, c_long, c_void, pthread_self, pthread_t};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
-use std::{ptr, slice};
+use std::sync::mpsc;
+use std::{ptr, slice, thread};
 
 struct BusyPullData {
     current_thread: VALUE,
@@ -78,7 +79,91 @@ unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     klass.flags & 0x1f
 }
 
+fn consume_iseq(rx: mpsc::Receiver<u64>) {
+    let mut iseqs: HashSet<u64> = HashSet::new();
+    let mut i = 0;
+
+    for iseq in rx {
+        iseqs.insert(iseq);
+        i += 1;
+
+        if i >= 1000 {
+            unsafe {
+                log_iseq(&iseqs);
+            }
+        }
+    }
+}
+
+unsafe fn log_iseq(iseqs: &HashSet<u64>) {
+    let mut log = format!("");
+    for addr in iseqs {
+        let iseq = &*(*addr as *const rb_iseq_struct);
+        // let class = iseq as VALUE as *mut RBasic;
+        let body = *iseq.body;
+        let body_type = rb_type(iseq.body as VALUE);
+
+        // Method can be reclaimed and its memory can be assigned to other objects,
+        // only log the method info when body_type is right to avoid segment fault.
+        // This is a temporary solution as it can't avoid all potential problems
+        if body_type != RUBY_T_OBJECT as u64
+            && body_type != RUBY_T_CLASS as u64
+            && body_type != RUBY_T_MODULE as u64
+        {
+            log::debug!(
+                "addr={}, iseq_type={}, body_type={}\n",
+                addr,
+                rb_type(*addr),
+                body_type
+            );
+            return;
+        }
+
+        let mut label = body.location.label as VALUE;
+        let label_str = rb_string_value_ptr(&mut label);
+
+        let rstring = &*(label as *mut RString);
+        let str_class = rstring.basic.klass;
+
+        let mut pathobj = body.location.pathobj as VALUE;
+        let pathobj_str = &*(pathobj as *mut RString);
+        let first_lineno = rb_num2int(body.location.first_lineno as VALUE);
+
+        if pathobj_str.basic.klass == str_class {
+            let path_str = rb_string_value_ptr(&mut pathobj);
+            log = format!(
+                "{},[{},{},{},{}]",
+                log,
+                addr,
+                CStr::from_ptr(label_str).to_str().unwrap(),
+                CStr::from_ptr(path_str).to_str().unwrap(),
+                first_lineno
+            )
+        } else {
+            let pathobj_arr = &*(pathobj as *mut RArray);
+            let mut path_addr = pathobj_arr.as_.ary[0] as VALUE;
+            let path_str = rb_string_value_ptr(&mut path_addr);
+            log = format!(
+                "{},[{},{},{},{}]",
+                log,
+                addr,
+                CStr::from_ptr(label_str).to_str().unwrap(),
+                CStr::from_ptr(path_str).to_str().unwrap(),
+                first_lineno
+            )
+        }
+    }
+
+    log::info!("[methods-2]{}", log);
+}
+
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        consume_iseq(rx);
+    });
+
     let data: &mut BusyPullData = ptr_to_struct(data);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
@@ -114,68 +199,12 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
 
         loop_times += 1;
 
-        if loop_times == 10_000_000 {
-            let mut log = format!("");
+        if loop_times == 1_000 {
             for iseq_addr in &iseqs {
-                let addr = *iseq_addr;
-
-                let iseq = &*(addr as *const rb_iseq_struct);
-                // let class = iseq as VALUE as *mut RBasic;
-                let body = *iseq.body;
-                let body_type = rb_type(iseq.body as VALUE);
-
-                // Method can be reclaimed and its memory can be assigned to other objects,
-                // only log the method info when body_type is right to avoid segment fault.
-                // This is a temporary solution as it can't avoid all potential problems
-                if body_type != RUBY_T_OBJECT as u64
-                    && body_type != RUBY_T_CLASS as u64
-                    && body_type != RUBY_T_MODULE as u64
-                {
-                    log::debug!(
-                        "addr={}, iseq_type={}, body_type={}\n",
-                        addr,
-                        rb_type(addr),
-                        body_type
-                    );
-                    continue;
-                }
-
-                let mut label = body.location.label as VALUE;
-                let label_str = rb_string_value_ptr(&mut label);
-
-                let rstring = &*(label as *mut RString);
-                let str_class = rstring.basic.klass;
-
-                let mut pathobj = body.location.pathobj as VALUE;
-                let pathobj_str = &*(pathobj as *mut RString);
-                let first_lineno = rb_num2int(body.location.first_lineno as VALUE);
-                if pathobj_str.basic.klass == str_class {
-                    let path_str = rb_string_value_ptr(&mut pathobj);
-                    log = format!(
-                        "{},[{},{},{},{}]",
-                        log,
-                        addr,
-                        CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap(),
-                        first_lineno
-                    )
-                } else {
-                    let pathobj_arr = &*(pathobj as *mut RArray);
-                    let mut path_addr = pathobj_arr.as_.ary[0] as VALUE;
-                    let path_str = rb_string_value_ptr(&mut path_addr);
-                    log = format!(
-                        "{},[{},{},{},{}]",
-                        log,
-                        addr,
-                        CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap(),
-                        first_lineno
-                    )
-                }
+                tx.send(iseq_addr.clone()).unwrap();
             }
 
             iseqs = HashSet::new();
-            log::info!("[methods]{}", log);
             loop_times = 0;
         }
     }
