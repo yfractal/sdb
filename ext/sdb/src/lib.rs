@@ -2,7 +2,8 @@ use libc::c_char;
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
     rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_with_gvl,
-    rb_thread_call_without_gvl2, Qtrue, RArray, RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_thread_call_without_gvl2, rb_thread_create, Qnil, Qtrue, RArray, RBasic, RString,
+    RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
@@ -83,24 +84,40 @@ unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     klass.flags & 0x1f
 }
 
-fn consume_iseq(rx: mpsc::Receiver<u64>) {
+fn consume_iseq(rx: &mpsc::Receiver<u64>) {
     let mut iseqs: HashSet<u64> = HashSet::new();
     let mut i = 0;
 
     for iseq in rx {
-        iseqs.insert(iseq);
-        i += 1;
-
-        if i >= 1000 {
-            let mut data = LogIseqsData {
-                iseqs: iseqs.clone(),
-            };
-
-            unsafe {
-                rb_thread_call_with_gvl(Some(log_iseq_helper), struct_to_ptr(&mut data));
-            }
+        unsafe {
+            log_iseq(&iseqs);
         }
+
+        log::debug!("receive one iseq {}", iseq);
     }
+
+    // while let Ok(iseq) = rx.try_recv() {
+    //     log::debug!("receive one iseq {}", iseq);
+
+    // }
+
+    // while let Ok(iseq) = rx.try_recv() {
+    //     log::debug!("receive on iseq {}", iseq);
+    //     iseqs.insert(iseq);
+    //     i += 1;
+
+    //     if i >= 10 {
+    //         let mut data = LogIseqsData {
+    //             iseqs: iseqs.clone(),
+    //         };
+
+    //         unsafe {
+    //             rb_thread_call_with_gvl(Some(log_iseq_helper), struct_to_ptr(&mut data));
+    //         }
+
+    //         i = 0;
+    //     }
+    // }
 }
 
 unsafe extern "C" fn log_iseq_helper(data: *mut c_void) -> *mut c_void {
@@ -172,12 +189,19 @@ unsafe fn log_iseq(iseqs: &HashSet<u64>) {
     log::info!("[methods-2]{}", log);
 }
 
+unsafe extern "C" fn consume_iseq_helper(rx_ptr: *mut c_void) -> VALUE {
+    log::debug!("thread is created");
+    let rx = unsafe { &*(rx_ptr as *const mpsc::Receiver<u64>) };
+    consume_iseq(rx);
+
+    Qtrue as VALUE
+}
+
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     let (tx, rx) = mpsc::channel();
+    let rx_ptr: *mut c_void = &rx as *const _ as *mut c_void;
 
-    thread::spawn(move || {
-        consume_iseq(rx);
-    });
+    rb_thread_create(Some(consume_iseq_helper), rx_ptr);
 
     let data: &mut BusyPullData = ptr_to_struct(data);
 
