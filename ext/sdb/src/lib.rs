@@ -25,6 +25,7 @@ struct BusyPullData {
     stop: bool,
 }
 
+const FAST_LOG_CHAN_LEN: usize = 100_000;
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
 
 fn init_trace_id_table() {
@@ -87,6 +88,8 @@ unsafe extern "C" fn ubf_do_busy_pull(data: *mut c_void) {
 }
 
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
+    fast_log::init(Config::new().file("sdb.log").chan_len(Some(FAST_LOG_CHAN_LEN))).unwrap();
+
     let data: &mut BusyPullData = ptr_to_struct(data);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
@@ -278,8 +281,6 @@ fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn Init_sdb() {
-    fast_log::init(Config::new().file("sdb.log").chan_len(Some(1))).unwrap();
-
     unsafe {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
