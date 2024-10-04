@@ -1,9 +1,11 @@
 use libc::c_char;
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue, RArray,
-    RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue, RBasic,
+    RTypedData, ID, RARRAY_LEN, VALUE,
 };
+
+use rb_sys::macros::RARRAY_CONST_PTR;
 
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rbspy_ruby_structs::ruby_3_1_5::{
@@ -138,13 +140,11 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                 let mut label = body.location.label as VALUE;
                 let label_str = rb_string_value_ptr(&mut label);
 
-                let rstring = &*(label as *mut RString);
-                let str_class = rstring.basic.klass;
+                let str_class = rb_sys::rb_obj_class(label);
 
                 let mut pathobj = body.location.pathobj as VALUE;
-                let pathobj_str = &*(pathobj as *mut RString);
                 let first_lineno = rb_num2int(body.location.first_lineno as VALUE);
-                if pathobj_str.basic.klass == str_class {
+                if rb_sys::rb_obj_class(pathobj) == str_class {
                     let path_str = rb_string_value_ptr(&mut pathobj);
                     log = format!(
                         "{},[{},{},{},{}]",
@@ -155,8 +155,8 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
                         first_lineno
                     )
                 } else {
-                    let pathobj_arr = &*(pathobj as *mut RArray);
-                    let mut path_addr = pathobj_arr.as_.ary[0] as VALUE;
+                    let elements = RARRAY_CONST_PTR(pathobj);
+                    let mut path_addr = *elements.add(0) as VALUE;
                     let path_str = rb_string_value_ptr(&mut path_addr);
                     log = format!(
                         "{},[{},{},{},{}]",
