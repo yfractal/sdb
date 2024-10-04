@@ -1,20 +1,20 @@
-use libc::c_char;
+use chrono::Utc;
+use fast_log::config::Config;
+use libc::{c_char, c_int, c_long, c_void, pthread_self, pthread_t};
+use log::Log;
+
+use rb_sys::macros::RARRAY_CONST_PTR;
+use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
     rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue, RBasic,
     RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
-use rb_sys::macros::RARRAY_CONST_PTR;
-
-use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_global_vm_lock_t, rb_iseq_struct, rb_thread_t,
 };
 
-use chrono::Utc;
-use fast_log::config::Config;
-use libc::{c_int, c_long, c_void, pthread_self, pthread_t};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::{ptr, slice};
@@ -25,6 +25,7 @@ struct BusyPullData {
     stop: bool,
 }
 
+const FAST_LOG_CHAN_LEN: usize = 100_000;
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
 
 fn init_trace_id_table() {
@@ -87,6 +88,13 @@ unsafe extern "C" fn ubf_do_busy_pull(data: *mut c_void) {
 }
 
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
+    let logger = fast_log::init(
+        Config::new()
+            .file("sdb.log")
+            .chan_len(Some(FAST_LOG_CHAN_LEN)),
+    )
+    .unwrap();
+
     let data: &mut BusyPullData = ptr_to_struct(data);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
@@ -175,6 +183,7 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
         }
 
         if data.stop {
+            logger.flush();
             return ptr::null_mut();
         }
 
@@ -278,8 +287,6 @@ fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn Init_sdb() {
-    fast_log::init(Config::new().file("sdb.log").chan_len(Some(1))).unwrap();
-
     unsafe {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
