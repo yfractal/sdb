@@ -1,7 +1,7 @@
 use libc::c_char;
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl2, Qtrue, RArray,
+    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue, RArray,
     RBasic, RString, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
@@ -20,6 +20,7 @@ use std::{ptr, slice};
 struct BusyPullData {
     current_thread: VALUE,
     threads: VALUE,
+    stop: bool,
 }
 
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
@@ -78,6 +79,11 @@ unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     klass.flags & 0x1f
 }
 
+unsafe extern "C" fn ubf_do_busy_pull(data: *mut c_void) {
+    let data: &mut BusyPullData = ptr_to_struct(data);
+    data.stop = true;
+}
+
 unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     let data: &mut BusyPullData = ptr_to_struct(data);
 
@@ -101,6 +107,10 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
 
     let mut loop_times: isize = 0;
     loop {
+        if data.stop {
+            return ptr::null_mut();
+        }
+
         let mut i: isize = 0;
         while i < threads_count {
             let argv = &[rb_int2inum(i)];
@@ -222,14 +232,15 @@ unsafe extern "C" fn busy_pull(module: VALUE, threads: VALUE) -> VALUE {
     let mut data = BusyPullData {
         current_thread: current_thread,
         threads: threads,
+        stop: false,
     };
 
     // release gvl for avoiding block application's threads
-    rb_thread_call_without_gvl2(
+    rb_thread_call_without_gvl(
         Some(do_busy_pull),
         struct_to_ptr(&mut data),
-        None,
-        ptr::null_mut(),
+        Some(ubf_do_busy_pull),
+        struct_to_ptr(&mut data),
     );
 
     Qtrue as VALUE
