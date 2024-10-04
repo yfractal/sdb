@@ -107,24 +107,9 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
 
     let mut loop_times: isize = 0;
     loop {
-        if data.stop {
-            return ptr::null_mut();
-        }
-
-        let mut i: isize = 0;
-        while i < threads_count {
-            let argv = &[rb_int2inum(i)];
-            let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
-            if thread != data.current_thread {
-                record_thread_frames(thread, trace_table, &mut iseqs);
-            }
-
-            i += 1;
-        }
-
         loop_times += 1;
 
-        if loop_times == 10_000_000 {
+        if loop_times == 10_000_000 || data.stop {
             let mut log = format!("");
             for iseq_addr in &iseqs {
                 let addr = *iseq_addr;
@@ -187,6 +172,21 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
             iseqs = HashSet::new();
             log::info!("[methods]{}", log);
             loop_times = 0;
+        }
+
+        if data.stop {
+            return ptr::null_mut();
+        }
+
+        let mut i: isize = 0;
+        while i < threads_count {
+            let argv = &[rb_int2inum(i)];
+            let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
+            if thread != data.current_thread {
+                record_thread_frames(thread, trace_table, &mut iseqs);
+            }
+
+            i += 1;
         }
     }
 }
