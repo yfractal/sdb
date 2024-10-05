@@ -18,7 +18,8 @@ struct event_t {
     u64 start_ts;
     u64 end_ts;
 };
-BPF_HASH(start, u32);
+
+BPF_HASH(events_map, u32, struct event_t);
 BPF_PERF_OUTPUT(events);
 
 int oncpu(struct pt_regs *ctx, struct task_struct *prev) {
@@ -26,24 +27,25 @@ int oncpu(struct pt_regs *ctx, struct task_struct *prev) {
     u64 ts = bpf_ktime_get_ns();
 
     // current task
-    pid = bpf_get_current_pid_tgid();
-    start.update(&pid, &ts);
-
-    // pre task
-    pid = prev->pid; // thread id
-    tgid = prev->tgid;
-    u64 *tsp = start.lookup(&pid);
-    if (tsp == 0) {
-      return 0; // missed start
-    }
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    pid = pid_tgid >> 32;
+    tgid = pid_tgid & 0xFFFFFFFF;
 
     struct event_t event = {};
     event.pid = pid;
     event.tgid = tgid;
-    event.start_ts = *tsp;
-    event.end_ts = ts;
+    bpf_get_current_comm(&event.name, sizeof(event.name));
+    event.start_ts = ts;
+    events_map.update(&pid, &event);
 
-    events.perf_submit(ctx, &event, sizeof(event));
+    // pre task
+    pid = prev->pid; // thread id
+    struct event_t *eventp = events_map.lookup(&pid);
+    if (eventp == 0) {
+        return 0;
+    }
+    eventp->end_ts = ts;
+    events.perf_submit(ctx, eventp, sizeof(*eventp));
 
     return 0;
 }
@@ -60,7 +62,7 @@ if matched == 0:
 
 def print_event(cpu, data, size):
     event = b["events"].event(data)
-    print(f"{event.pid}, {event.tgid}, {event.name}\n")
+    print(f"{event.pid}, {event.tgid}, {event.name}, {event.start_ts}, {event.end_ts}\n")
 
 b["events"].open_perf_buffer(print_event)
 while 1:
