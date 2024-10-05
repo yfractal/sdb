@@ -1,9 +1,8 @@
+import os
+import sys
+
 from bcc import BPF
-
 from sys import stderr
-
-import ctypes
-import json
 
 MAX_STR_LENGTH = 128
 
@@ -12,8 +11,8 @@ bpf_text = """
 #include <linux/sched.h>
 
 struct event_t {
-    u32 pid;
-    u32 tgid;
+    u32 tgid; // group id or process id
+    u32 pid;  // thread id
     char name[TASK_COMM_LEN];
     u64 start_ts;
     u64 end_ts;
@@ -28,29 +27,41 @@ int oncpu(struct pt_regs *ctx, struct task_struct *prev) {
 
     // current task
     u64 pid_tgid = bpf_get_current_pid_tgid();
-    pid = pid_tgid >> 32;
-    tgid = pid_tgid & 0xFFFFFFFF;
+    tgid = pid_tgid >> 32;
+    pid = (__u32)pid_tgid;
 
-    struct event_t event = {};
-    event.pid = pid;
-    event.tgid = tgid;
-    bpf_get_current_comm(&event.name, sizeof(event.name));
-    event.start_ts = ts;
-    events_map.update(&pid, &event);
+    if (FILTER) {
+        struct event_t event = {};
+        event.pid = pid;
+        event.tgid = tgid;
+        bpf_get_current_comm(&event.name, sizeof(event.name));
+        event.start_ts = ts;
+        events_map.update(&tgid, &event);
+    }
 
     // pre task
-    pid = prev->pid; // thread id
-    struct event_t *eventp = events_map.lookup(&pid);
-    if (eventp == 0) {
-        return 0;
+    pid = prev->pid;
+    tgid = prev->tgid;
+    if (FILTER) {
+        struct event_t *eventp = events_map.lookup(&tgid);
+        if (eventp == 0) {
+            return 0;
+        }
+        eventp->end_ts = ts;
+        events.perf_submit(ctx, eventp, sizeof(*eventp));
     }
-    eventp->end_ts = ts;
-    events.perf_submit(ctx, eventp, sizeof(*eventp));
 
     return 0;
 }
 """
-
+args = sys.argv[1:]
+print(f"Arguments: {args}")
+if args == []:
+    condition = '1'
+else:
+    condition = ' || '.join([f'tgid == {i}' for i in args])
+bpf_text = bpf_text.replace('FILTER', condition)
+print(bpf_text)
 # initialize BPF
 b = BPF(text=bpf_text)
 b.attach_kprobe(event_re=r'^finish_task_switch$|^finish_task_switch\.isra\.\d$',
@@ -62,7 +73,7 @@ if matched == 0:
 
 def print_event(cpu, data, size):
     event = b["events"].event(data)
-    print(f"{event.pid}, {event.tgid}, {event.name}, {event.start_ts}, {event.end_ts}\n")
+    print(f"tgid={event.tgid}, pid={event.pid}, name={event.name}, {event.start_ts}, {event.end_ts}\n")
 
 b["events"].open_perf_buffer(print_event)
 while 1:
