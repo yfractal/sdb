@@ -2,10 +2,7 @@ extern crate libc;
 extern crate libloading;
 
 use fast_log::config::Config;
-use libc::{
-    clock_gettime, pthread_cond_t, pthread_mutex_t, pthread_self, pthread_t, timespec,
-    CLOCK_MONOTONIC,
-};
+use libc::{clock_gettime, pthread_cond_t, pthread_mutex_t, timespec, CLOCK_MONOTONIC};
 use libloading::Library;
 use std::sync::Once;
 
@@ -55,6 +52,10 @@ unsafe fn init_once() {
     });
 }
 
+fn get_linux_thread_id() -> libc::pid_t {
+    unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t }
+}
+
 fn ts() -> u64 {
     let mut ts: timespec = timespec {
         tv_sec: 0,
@@ -73,7 +74,7 @@ fn ts() -> u64 {
 pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut pthread_mutex_t) -> i32 {
     init_once();
 
-    let tid: pthread_t = pthread_self();
+    let tid = get_linux_thread_id();
     log::info!(
         "[lock][mutex][acquire]: thread={}, lock_addr={}",
         tid,
@@ -100,7 +101,7 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut pthread_mutex_t) -> i32 
 pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut pthread_mutex_t) -> i32 {
     init_once();
 
-    let tid: pthread_t = pthread_self();
+    let tid = get_linux_thread_id();
 
     if let Some(real_pthread_mutex_unlock) = REAL_PTHREAD_MUTEX_UNLOCK {
         let ret = real_pthread_mutex_unlock(mutex);
@@ -127,7 +128,7 @@ pub unsafe extern "C" fn pthread_cond_wait(
 ) -> i32 {
     init_once();
 
-    let tid: pthread_t = pthread_self();
+    let tid = get_linux_thread_id();
     log::info!(
         "[lock][cond][acquire]: thread={}, lock_addr={}, cond_var_addr={}, ts={}",
         tid,
@@ -159,7 +160,7 @@ pub unsafe extern "C" fn pthread_cond_wait(
 pub unsafe extern "C" fn pthread_cond_signal(cond: *mut pthread_cond_t) -> i32 {
     init_once();
 
-    let tid: pthread_t = pthread_self();
+    let tid = get_linux_thread_id();
 
     if let Some(real_pthread_cond_signal) = REAL_PTHREAD_COND_SIGNAL {
         let ret = real_pthread_cond_signal(cond);
