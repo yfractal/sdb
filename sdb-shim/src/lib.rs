@@ -2,8 +2,10 @@ extern crate libc;
 extern crate libloading;
 
 use fast_log::config::Config;
-use libc::{pthread_cond_t, pthread_mutex_t};
-use libc::{pthread_self, pthread_t};
+use libc::{
+    clock_gettime, pthread_cond_t, pthread_mutex_t, pthread_self, pthread_t, timespec,
+    CLOCK_MONOTONIC,
+};
 use libloading::Library;
 use std::sync::Once;
 
@@ -53,6 +55,20 @@ unsafe fn init_once() {
     });
 }
 
+fn ts() -> u64 {
+    let mut ts: timespec = timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+
+    let result = unsafe { clock_gettime(CLOCK_MONOTONIC, &mut ts) };
+    if result == 0 {
+        ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    } else {
+        0
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut pthread_mutex_t) -> i32 {
     init_once();
@@ -67,9 +83,10 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut pthread_mutex_t) -> i32 
     if let Some(real_pthread_mutex_lock) = REAL_PTHREAD_MUTEX_LOCK {
         let ret = real_pthread_mutex_lock(mutex);
         log::info!(
-            "[lock][mutex][acquired]: thread={}, lock_addr={}",
+            "[lock][mutex][acquired]: thread={}, lock_addr={}, ts={}",
             tid,
-            mutex as u64
+            mutex as u64,
+            ts()
         );
 
         ret
@@ -89,9 +106,10 @@ pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut pthread_mutex_t) -> i3
         let ret = real_pthread_mutex_unlock(mutex);
         if ret == 0 {
             log::info!(
-                "[lock][mutex][unlock]: thread={}, lock_addr={}",
+                "[lock][mutex][unlock]: thread={}, lock_addr={}, ts={}",
                 tid,
-                mutex as u64
+                mutex as u64,
+                ts()
             );
         }
 
@@ -111,20 +129,22 @@ pub unsafe extern "C" fn pthread_cond_wait(
 
     let tid: pthread_t = pthread_self();
     log::info!(
-        "[lock][cond][acquire]: thread={}, lock_addr={}, cond_var_addr={}",
+        "[lock][cond][acquire]: thread={}, lock_addr={}, cond_var_addr={}, ts={}",
         tid,
         mutex as u64,
-        cond as u64
+        cond as u64,
+        ts()
     );
 
     if let Some(real_pthread_cond_wait) = REAL_PTHREAD_COND_WAIT {
         let ret = real_pthread_cond_wait(cond, mutex);
         if ret == 0 {
             log::info!(
-                "[lock][cond][acquired]: thread={}, lock_addr={}, cond_var_addr={}",
+                "[lock][cond][acquired]: thread={}, lock_addr={}, cond_var_addr={}, ts={}",
                 tid,
                 mutex as u64,
-                cond as u64
+                cond as u64,
+                ts()
             );
         }
 
@@ -145,9 +165,10 @@ pub unsafe extern "C" fn pthread_cond_signal(cond: *mut pthread_cond_t) -> i32 {
         let ret = real_pthread_cond_signal(cond);
         if ret == 0 {
             log::info!(
-                "[lock][cond][signal]: thread={}, cond_var_addr={}",
+                "[lock][cond][signal]: thread={}, cond_var_addr={}, ts={}",
                 tid,
-                cond as u64
+                cond as u64,
+                ts()
             );
         }
 

@@ -55,13 +55,14 @@ int oncpu(struct pt_regs *ctx, struct task_struct *prev) {
 }
 """
 args = sys.argv[1:]
-print(f"Arguments: {args}")
+
 if args == []:
     condition = '1'
 else:
     condition = ' || '.join([f'tgid == {i}' for i in args])
+
 bpf_text = bpf_text.replace('FILTER', condition)
-print(bpf_text)
+
 # initialize BPF
 b = BPF(text=bpf_text)
 b.attach_kprobe(event_re=r'^finish_task_switch$|^finish_task_switch\.isra\.\d$',
