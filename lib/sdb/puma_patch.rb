@@ -10,7 +10,7 @@ module Sdb
         Sdb.set_trace_id(Thread.current, client.env['HTTP_TRACE_ID'].to_i)
         rv = super
         t1 = Time.now
-        puts "client.env['HTTP_TRACE_ID'].to_i=#{client.env['HTTP_TRACE_ID'].to_i}, #{(t1 - t0) * 1000} ms"
+        puts "trcace_id=#{client.env['HTTP_TRACE_ID'].to_i}, thread_id=#{Thread.current.native_thread_id}, remote_port=#{client.io.peeraddr[1]}, #{(t1 - t0) * 1000} ms"
 
         rv
       ensure
