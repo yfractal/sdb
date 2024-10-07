@@ -35,6 +35,7 @@ BPF_HASH(start, struct sock *, struct info_t);
 
 // separate data structs for ipv4 and ipv6
 struct ipv4_data_t {
+    u32 tgid; // group id or process id
     u32 pid;
     u32 daddr;
     u64 ip;
@@ -46,6 +47,7 @@ struct ipv4_data_t {
 BPF_PERF_OUTPUT(ipv4_events);
 
 struct ipv6_data_t {
+    u32 tgid; // group id or process id
     u32 pid;
     unsigned __int128 daddr;
     u64 ip;
@@ -76,6 +78,7 @@ int trace_tcp_close(struct pt_regs *ctx, struct sock *skp)
 
     u64 ts = infop->ts;
     u64 now = bpf_ktime_get_ns();
+    u64 tgid = bpf_get_current_pid_tgid() >> 32;
 
     u16 family = 0, lport = 0, dport = 0;
     family = skp->__sk_common.skc_family;
@@ -85,6 +88,7 @@ int trace_tcp_close(struct pt_regs *ctx, struct sock *skp)
     // emit to appropriate data path
     if (family == AF_INET) {
         struct ipv4_data_t data4 = {};
+        data4.tgid = tgid;
         data4.pid = infop->pid;
         data4.ip = 4;
         data4.daddr = skp->__sk_common.skc_daddr;
@@ -96,6 +100,7 @@ int trace_tcp_close(struct pt_regs *ctx, struct sock *skp)
 
     } else /* AF_INET6 */ {
         struct ipv6_data_t data6 = {};
+        data6.tgid = tgid;
         data6.pid = infop->pid;
         data6.ip = 6;
         bpf_probe_read_kernel(&data6.daddr, sizeof(data6.daddr),
@@ -134,22 +139,13 @@ b.attach_kprobe(event="tcp_close", fn_name="trace_tcp_close")
 # process event
 def print_ipv4_event(cpu, data, size):
     event = b["ipv4_events"].event(data)
-    print("%-12.12s %-2d %-6d %-16s %-5d %d %d" % (event.pid,
-        event.ip,
-        event.lport,
-        inet_ntop(AF_INET, pack("I", event.daddr)), event.dport,
-        event.start_ts, event.end_ts))
+    daddr = inet_ntop(AF_INET, pack("I", event.daddr))
+    print(f"tgid={event.tgid}, pid={event.pid}, ip=#{event.ip}, addr={daddr}, lport={event.lport}, dport={event.dport}, start_ts={event.start_ts}, end_ts={event.end_ts}")
 
 def print_ipv6_event(cpu, data, size):
     event = b["ipv6_events"].event(data)
-    print("%-12.12s %-2d %-6d %-16s %-5d %d %d" % (event.pid,
-        event.ip,
-        event.lport,
-        inet_ntop(AF_INET6, event.daddr),
-        event.dport, event.start_ts, event.end_ts))
-
-# header
-print("%-7s %-2s %-16s %-6s %-16s %-5s %s" % ("PID", "IP", "SADDR", "LPORT", "DADDR", "DPORT", "LAT(ms)"))
+    daddr = inet_ntop(AF_INET6, event.daddr)
+    print(f"tgid={event.tgid}, pid={event.pid}, ip=#{event.ip}, addr={daddr}, lport={event.lport}, dport={event.dport}, start_ts={event.start_ts}, end_ts={event.end_ts}")
 
 # read events
 b["ipv4_events"].open_perf_buffer(print_ipv4_event)

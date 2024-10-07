@@ -45,6 +45,7 @@ int oncpu(struct pt_regs *ctx, struct task_struct *prev) {
     if (FILTER) {
         struct event_t *eventp = events_map.lookup(&tgid);
         if (eventp == 0) {
+            bpf_trace_printk("prev is nil");
             return 0;
         }
         eventp->end_ts = ts;
@@ -74,7 +75,7 @@ if matched == 0:
 
 def print_event(cpu, data, size):
     event = b["events"].event(data)
-    print(f"tgid={event.tgid}, pid={event.pid}, name={event.name}, {event.start_ts}, {event.end_ts}\n")
+    print(f"tgid={event.tgid}, pid={event.pid}, name={event.name.decode('utf-8')}, start_ts={event.start_ts}, end_ts={event.end_ts}")
 
 b["events"].open_perf_buffer(print_event)
 while 1:
