@@ -94,7 +94,7 @@ static inline int read_rstring(struct RString *str, char *buff) {
 // rb_iseq_new_with_opt(const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,
 //                      VALUE first_lineno, const rb_iseq_t *parent, int isolated_depth,
 //                      enum iseq_type type, const rb_compile_option_t *option)
-int rb_iseq_new_with_opt_instrument(struct pt_regs *ctx) {
+int rb_iseq_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 pid = pid_tgid >> 32;
     u64 tid = pid_tgid & 0xFFFFFFFF;
@@ -122,7 +122,7 @@ int rb_iseq_new_with_opt_instrument(struct pt_regs *ctx) {
     return 0;
 }
 
-int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
+static inline int rb_iseq_return_instrument(struct pt_regs *ctx, u32 debug) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 ret_val = PT_REGS_RC(ctx);
     struct event_t *event = events_map.lookup(&pid_tgid);
@@ -131,15 +131,36 @@ int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
     }
 
     event->iseq_addr = ret_val;
+    event->debug = debug;
     events.perf_submit(ctx, event, sizeof(*event));
 
     return 0;
 }
+
+int rb_iseq_new_return_instrument(struct pt_regs *ctx) {
+    return rb_iseq_return_instrument(ctx, 0);
+}
+
+int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
+    return rb_iseq_return_instrument(ctx, 1);
+}
+
 """
 
+# rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
+# rb_iseq_t *rb_iseq_new_top     (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent);
+# rb_iseq_t *rb_iseq_new_main    (const rb_ast_body_t *ast,             VALUE path, VALUE realpath,                     const rb_iseq_t *parent, int opt);
+# rb_iseq_t *rb_iseq_new_eval    (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, int isolated_depth);
+# rb_iseq_t *rb_iseq_new_with_opt(const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, int isolated_depth,
+#                                 enum iseq_type, const rb_compile_option_t*);
+# rb_iseq_t *rb_iseq_new_with_callback(const struct rb_iseq_new_with_callback_callback_func * ifunc,
+#                                                           VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, enum iseq_type, const rb_compile_option_t*);
 b = BPF(text=bpf_text)
 binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
-b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_instrument")
+b.attach_uprobe(name=binary_path, sym="rb_iseq_new", fn_name="rb_iseq_instrument")
+b.attach_uretprobe(name=binary_path, sym="rb_iseq_new", fn_name="rb_iseq_new_return_instrument")
+
+b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_return_instrument")
 
 class Event(ctypes.Structure):
