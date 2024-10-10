@@ -223,11 +223,13 @@ unsafe extern "C" fn record_thread_frames(
     for item in slice {
         if item as *const _ as i64 != 0 {
             let iseq: &rb_iseq_struct = &*item.iseq;
-            if iseq as *const _ as i64 != 0 {
-                let iseq_addr = iseq as *const _ as u64;
-                methods_table.insert(iseq_addr);
-                log = format!("{}, {}", log, iseq_addr);
-            }
+            // iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
+            // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
+            // But for getting it, we need to make sure the sp doesn't change and the rb_callable_method_entry_t hasn't been freed.
+            // It may cause too much troubles, so we consider how to read cframe in the future.
+            let iseq_addr = iseq as *const _ as u64;
+            methods_table.insert(iseq_addr);
+            log = format!("{}, {}", log, iseq_addr);
         }
     }
 
