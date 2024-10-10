@@ -140,6 +140,36 @@ int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
 int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
     return rb_iseq_return_instrument(ctx, 1);
 }
+
+// void rb_define_method(VALUE klass, const char *mid, VALUE (*func)(ANYARGS), int arity);
+int rb_define_method_probe(struct pt_regs *ctx) {
+    struct event_t event = {};
+
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+
+    char *mid = (char *)PT_REGS_PARM2(ctx);
+    bpf_probe_read_str(&event.name, sizeof(event.name), mid);
+
+    struct RString *class;
+    bpf_probe_read(&class, sizeof(class), (void *)&PT_REGS_PARM1(ctx));
+    // use class as path
+    read_rstring(class, event.path);
+
+    struct VALUE *func;
+    bpf_probe_read(&func, sizeof(func), (void *)&PT_REGS_PARM3(ctx));
+    event.iseq_addr = (u64)func;
+    event.debug = 3;
+
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
 """
 
 b = BPF(text=bpf_text)
@@ -164,6 +194,11 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_ise
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
 
+
+# for C function
+# rb_define_singleton_method -> rb_define_method
+b.attach_uprobe(name=binary_path, sym="rb_define_method", fn_name="rb_define_method_probe")
+
 class Event(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint32),
@@ -177,13 +212,20 @@ class Event(ctypes.Structure):
     ]
 
     def to_dict(self):
+        name = ''
+        if self.name != '':
+            name = self.name.decode('utf-8', 'replace').rstrip('\x00')
+        path = ''
+        if self.path != '':
+            path = self.path.decode('utf-8', 'replace').rstrip('\x00')
+
         data = {
             "pid": self.pid,
             "tid": self.tid,
             "ts": self.ts,
             "first_lineno": self.first_lineno,
-            "name": self.name.decode('utf-8').rstrip('\x00'),
-            "path": self.path.decode('utf-8').rstrip('\x00'),
+            "name": name,
+            "path": path,
             "iseq_addr": self.iseq_addr,
             "debug": self.debug,
         }
@@ -194,10 +236,12 @@ def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
     print(json.dumps(event.to_dict()))
 
+
+
 b["events"].open_perf_buffer(print_event, 1024)
 
 while True:
     try:
-        b.perf_buffer_poll()
+        b.perf_buffer_poll(timeout=100)
     except KeyboardInterrupt:
         exit()
