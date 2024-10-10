@@ -164,6 +164,7 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_ise
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
 
+# TODO: capture c functions
 class Event(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint32),
