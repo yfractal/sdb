@@ -7,22 +7,24 @@ use rb_sys::macros::RARRAY_CONST_PTR;
 use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue, RBasic,
-    RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_num2dbl, rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue,
+    RBasic, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_global_vm_lock_t, rb_iseq_struct, rb_thread_t,
 };
 
+use std::{ptr, slice, thread};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use std::ffi::CStr;
-use std::{ptr, slice};
 
-struct BusyPullData {
+struct PullData {
     current_thread: VALUE,
     threads: VALUE,
     stop: bool,
+    sleep_millis: u32,
 }
 
 const FAST_LOG_CHAN_LEN: usize = 100_000;
@@ -82,12 +84,12 @@ unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
     klass.flags & 0x1f
 }
 
-unsafe extern "C" fn ubf_do_busy_pull(data: *mut c_void) {
-    let data: &mut BusyPullData = ptr_to_struct(data);
+unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
+    let data: &mut PullData = ptr_to_struct(data);
     data.stop = true;
 }
 
-unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
+unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let logger = fast_log::init(
         Config::new()
             .file("sdb.log")
@@ -95,7 +97,7 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
     )
     .unwrap();
 
-    let data: &mut BusyPullData = ptr_to_struct(data);
+    let data: &mut PullData = ptr_to_struct(data);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
 
@@ -123,6 +125,9 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
             let mut log = format!("");
             for iseq_addr in &iseqs {
                 let addr = *iseq_addr;
+                if addr == 0 {
+                    continue
+                }
 
                 let iseq = &*(addr as *const rb_iseq_struct);
                 // let class = iseq as VALUE as *mut RBasic;
@@ -197,6 +202,10 @@ unsafe extern "C" fn do_busy_pull(data: *mut c_void) -> *mut c_void {
 
             i += 1;
         }
+
+        if data.sleep_millis != 0 {
+            thread::sleep(Duration::from_millis(data.sleep_millis as u64));
+        }
     }
 }
 
@@ -236,21 +245,22 @@ unsafe extern "C" fn record_thread_frames(
     log::info!("[stack_frames][{}]", log);
 }
 
-unsafe extern "C" fn busy_pull(module: VALUE, threads: VALUE) -> VALUE {
+unsafe extern "C" fn pull(module: VALUE, threads: VALUE, sleep_seconds: VALUE) -> VALUE {
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
 
-    let mut data = BusyPullData {
+    let mut data = PullData {
         current_thread: current_thread,
         threads: threads,
         stop: false,
+        sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(
-        Some(do_busy_pull),
+        Some(do_pull),
         struct_to_ptr(&mut data),
-        Some(ubf_do_busy_pull),
+        Some(ubf_do_pull),
         struct_to_ptr(&mut data),
     );
 
@@ -292,16 +302,11 @@ extern "C" fn Init_sdb() {
     unsafe {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
-        let busy_pull_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+        let pull_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
-        >(busy_pull);
-        rb_define_singleton_method(
-            module,
-            "busy_pull\0".as_ptr() as _,
-            Some(busy_pull_callback),
-            1,
-        );
+        >(pull);
+        rb_define_singleton_method(module, "pull\0".as_ptr() as _, Some(pull_callback), 2);
 
         let set_trace_id_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
