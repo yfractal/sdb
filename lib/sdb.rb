@@ -26,5 +26,9 @@ module Sdb
     def log_gvl_addr
       log_gvl_addr_for_thread(Thread.current)
     end
+
+    def busy_pull(threads)
+      self.pull(threads, 0)
+    end
   end
 end
