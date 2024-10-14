@@ -194,8 +194,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
         let mut i: isize = 0;
         while i < threads_count {
-            let argv = &[rb_int2inum(i)];
-            let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
+            let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
             if thread != data.current_thread {
                 record_thread_frames(thread, trace_table, &mut iseqs);
             }
