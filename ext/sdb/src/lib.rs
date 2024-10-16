@@ -3,12 +3,10 @@ use fast_log::config::Config;
 use libc::{c_char, c_int, c_long, c_void, pthread_self, pthread_t};
 use log::Log;
 
-use rb_sys::macros::RARRAY_CONST_PTR;
-use rb_sys::ruby_value_type::{RUBY_T_CLASS, RUBY_T_MODULE, RUBY_T_OBJECT};
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2dbl, rb_num2int, rb_num2ulong, rb_string_value_ptr, rb_thread_call_without_gvl, Qtrue,
-    RBasic, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_num2dbl, rb_num2ulong, rb_thread_call_without_gvl, Qtrue,
+    RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rbspy_ruby_structs::ruby_3_1_5::{
@@ -18,7 +16,6 @@ use rbspy_ruby_structs::ruby_3_1_5::{
 use std::{ptr, slice, thread};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use std::ffi::CStr;
 
 struct PullData {
     current_thread: VALUE,
@@ -79,11 +76,6 @@ pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALU
     rb_ll2inum(lock_addr as i64) as VALUE
 }
 
-unsafe extern "C" fn rb_type(val: VALUE) -> u64 {
-    let klass = *(val as VALUE as *mut RBasic);
-    klass.flags & 0x1f
-}
-
 unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
     let data: &mut PullData = ptr_to_struct(data);
     data.stop = true;
@@ -117,76 +109,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         i += 1
     }
 
-    let mut loop_times: isize = 0;
     loop {
-        loop_times += 1;
-
-        if loop_times == 10_000_000 || data.stop {
-            let mut log = format!("");
-            for iseq_addr in &iseqs {
-                let addr = *iseq_addr;
-                if addr == 0 {
-                    continue
-                }
-
-                let iseq = &*(addr as *const rb_iseq_struct);
-                // let class = iseq as VALUE as *mut RBasic;
-                let body = *iseq.body;
-                let body_type = rb_type(iseq.body as VALUE);
-
-                // Method can be reclaimed and its memory can be assigned to other objects,
-                // only log the method info when body_type is right to avoid segment fault.
-                // This is a temporary solution as it can't avoid all potential problems
-                if body_type != RUBY_T_OBJECT as u64
-                    && body_type != RUBY_T_CLASS as u64
-                    && body_type != RUBY_T_MODULE as u64
-                {
-                    log::debug!(
-                        "addr={}, iseq_type={}, body_type={}\n",
-                        addr,
-                        rb_type(addr),
-                        body_type
-                    );
-                    continue;
-                }
-
-                let mut label = body.location.label as VALUE;
-                let label_str = rb_string_value_ptr(&mut label);
-
-                let str_class = rb_sys::rb_obj_class(label);
-
-                let mut pathobj = body.location.pathobj as VALUE;
-                let first_lineno = rb_num2int(body.location.first_lineno as VALUE);
-                if rb_sys::rb_obj_class(pathobj) == str_class {
-                    let path_str = rb_string_value_ptr(&mut pathobj);
-                    log = format!(
-                        "{},[{},{},{},{}]",
-                        log,
-                        addr,
-                        CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap(),
-                        first_lineno
-                    )
-                } else {
-                    let elements = RARRAY_CONST_PTR(pathobj);
-                    let mut path_addr = *elements.add(0) as VALUE;
-                    let path_str = rb_string_value_ptr(&mut path_addr);
-                    log = format!(
-                        "{},[{},{},{},{}]",
-                        log,
-                        addr,
-                        CStr::from_ptr(label_str).to_str().unwrap(),
-                        CStr::from_ptr(path_str).to_str().unwrap(),
-                        first_lineno
-                    )
-                }
-            }
-
-            iseqs = HashSet::new();
-            log::info!("[methods]{}", log);
-            loop_times = 0;
-        }
-
         if data.stop {
             logger.flush();
             return ptr::null_mut();
