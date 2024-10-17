@@ -45,7 +45,8 @@ struct event_t {
     char name[MAX_STR_LENGTH];
     char path[MAX_STR_LENGTH];
     u64 iseq_addr;
-    u32 debug;
+    u32 event;
+    u32 debug; // 0 for start, 1 for end
 };
 
 BPF_HASH(events_map, u64, struct event_t);
@@ -100,6 +101,7 @@ int rb_iseq_instrument(struct pt_regs *ctx) {
     event.pid = pid;
     event.tid = tid;
     event.ts = bpf_ktime_get_ns();
+    event.event = 0;
 
     struct VALUE *first_lineno;
     bpf_probe_read(&first_lineno, sizeof(first_lineno), (void *)&PT_REGS_PARM5(ctx));
@@ -113,7 +115,7 @@ int rb_iseq_instrument(struct pt_regs *ctx) {
     bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM3(ctx));
     read_rstring(path, event.path);
 
-    events_map.update(&pid_tgid, &event);
+    events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
@@ -121,14 +123,11 @@ int rb_iseq_instrument(struct pt_regs *ctx) {
 static inline int rb_iseq_return_instrument(struct pt_regs *ctx, u32 debug) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 ret_val = PT_REGS_RC(ctx);
-    struct event_t *event = events_map.lookup(&pid_tgid);
-    if (event == 0) {
-        return 0;
-    }
-
-    event->iseq_addr = ret_val;
-    event->debug = debug;
-    events.perf_submit(ctx, event, sizeof(*event));
+    struct event_t event = {};
+    event.iseq_addr = ret_val;
+    event.debug = debug;
+    event.event = 1; // end of func
+    events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
@@ -158,6 +157,7 @@ binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
 # rb_iseq_new_main
 # rb_iseq_new_eval
 #   call rb_iseq_new_with_opt
+# rb_iseq_new_with_opt is used recursively, such as a function with block or rescue
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_return_instrument")
 
@@ -174,6 +174,7 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * MAX_STR_LENGTH),
         ("path", ctypes.c_char * MAX_STR_LENGTH),
         ("iseq_addr", ctypes.c_uint64),
+        ("event", ctypes.c_uint32),
         ("debug", ctypes.c_uint32),
     ]
 
@@ -186,6 +187,7 @@ class Event(ctypes.Structure):
             "name": self.name.decode('utf-8').rstrip('\x00'),
             "path": self.path.decode('utf-8').rstrip('\x00'),
             "iseq_addr": self.iseq_addr,
+            "event": self.event,
             "debug": self.debug,
         }
 
