@@ -1,7 +1,14 @@
+GIT
+  remote: git@github.com:yfractal/cpu_time.git
+  revision: 0f46f3ef403ebc333f3e1be2602bee24f5be7702
+  specs:
+    cpu_time (0.1.0)
+
 PATH
   remote: .
   specs:
     sdb (0.1.0)
+      cpu_time
 
 GEM
   remote: https://rubygems.org/
@@ -32,6 +39,7 @@ PLATFORMS
 
 DEPENDENCIES
   byebug
+  cpu_time!
   rake (~> 13.0)
   rake-compiler
   rb_sys (~> 0.9.63)
