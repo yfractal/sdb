@@ -5,17 +5,19 @@ use log::Log;
 
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2dbl, rb_num2ulong, rb_thread_call_without_gvl, Qtrue,
-    RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_num2dbl, rb_num2ulong, rb_thread_call_without_gvl, Qtrue, RTypedData, ID, RARRAY_LEN, VALUE,
 };
 
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_global_vm_lock_t, rb_iseq_struct, rb_thread_t,
 };
 
-use std::{ptr, slice, thread};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
+use std::{ptr, slice, thread};
+
+const FAST_LOG_CHAN_LEN: usize = 100_000;
+const ISEQS_BUFFER_SIZE: usize = 100_000;
 
 struct PullData {
     current_thread: VALUE,
@@ -24,7 +26,6 @@ struct PullData {
     sleep_millis: u32,
 }
 
-const FAST_LOG_CHAN_LEN: usize = 100_000;
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
 
 fn init_trace_id_table() {
@@ -96,6 +97,8 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     init_trace_id_table();
     let trace_table = get_trace_id_table();
     let mut i = 0;
+    let mut iseqs_buffer: [u64; ISEQS_BUFFER_SIZE] = [0; ISEQS_BUFFER_SIZE];
+    let mut iseqs_buffer_index: usize = 0;
 
     // init for avoding reallocation as it is accessed without any locks
     // program can insert before init which may cause issuess ...
@@ -110,6 +113,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     loop {
         if data.stop {
+            log::info!("[stack_frames][{:?}]", &iseqs_buffer[..iseqs_buffer_index]);
             logger.flush();
             return ptr::null_mut();
         }
@@ -119,7 +123,12 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
             if thread != data.current_thread {
-                record_thread_frames(thread, trace_table);
+                record_thread_frames(
+                    thread,
+                    trace_table,
+                    &mut iseqs_buffer,
+                    &mut iseqs_buffer_index,
+                );
             }
 
             i += 1;
@@ -135,34 +144,53 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     trace_table: &HashMap<u64, u64>,
+    iseqs_buffer: &mut [u64; ISEQS_BUFFER_SIZE],
+    iseqs_buffer_index: &mut usize,
 ) {
+    // todo: get the ec before the loop
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
     let thread = *thread_struct_ptr;
     let ec = *thread.ec;
+
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
+    // todo: pass rb_control_frame_struct size in
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
     let slice = slice::from_raw_parts(ec.cfp, len);
     let trace_id = trace_table.get(&thread_val).unwrap();
 
     let ts = Utc::now().timestamp_micros();
-    let mut log = format!("{},{}", trace_id, ts);
+
+    push_buffer(iseqs_buffer, iseqs_buffer_index, *trace_id);
+    push_buffer(iseqs_buffer, iseqs_buffer_index, ts as u64);
 
     for item in slice {
-        if item as *const _ as i64 != 0 {
-            let iseq: &rb_iseq_struct = &*item.iseq;
-            // iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
-            // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
-            // But for getting it, we need to make sure the sp doesn't change and the rb_callable_method_entry_t hasn't been freed.
-            // It may cause too much troubles, so we consider how to read cframe in the future.
-            let iseq_addr = iseq as *const _ as u64;
-            log = format!("{}, {}", log, iseq_addr);
-        }
+        let iseq: &rb_iseq_struct = &*item.iseq;
+        // iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
+        // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
+        // But for getting it, we need to make sure the sp doesn't change and the rb_callable_method_entry_t hasn't been freed.
+        // It may cause too much troubles, so we consider how to read cframe in the future.
+        let iseq_addr = iseq as *const _ as u64;
+
+        push_buffer(iseqs_buffer, iseqs_buffer_index, iseq_addr);
     }
 
-    log::info!("[stack_frames][{}]", log);
+    // seperator
+    push_buffer(iseqs_buffer, iseqs_buffer_index, u64::MAX);
+    push_buffer(iseqs_buffer, iseqs_buffer_index, u64::MAX);
+}
+
+#[inline]
+fn push_buffer(iseqs_buffer: &mut [u64; ISEQS_BUFFER_SIZE], iseqs_buffer_index: &mut usize, item: u64) {
+    if *iseqs_buffer_index < ISEQS_BUFFER_SIZE {
+        iseqs_buffer[*iseqs_buffer_index] = item;
+        *iseqs_buffer_index += 1;
+    } else {
+        log::info!("[stack_frames][{:?}]", iseqs_buffer);
+        *iseqs_buffer_index = 0;
+    }
 }
 
 unsafe extern "C" fn pull(module: VALUE, threads: VALUE, sleep_seconds: VALUE) -> VALUE {
