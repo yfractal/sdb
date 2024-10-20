@@ -3,7 +3,7 @@ import http from "k6/http";
 const url = __ENV.URL || 'http://localhost:3000/api/v3/topics';
 
 export const options = {
-    vus: 2,
+    vus: 1, // 1 uv can use 60% CPU :joy:
     duration: '30s',
   };
 
