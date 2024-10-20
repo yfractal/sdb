@@ -1,4 +1,19 @@
 ## Run Homeland
+Sdb configuration
+```ruby
+Thread.new do
+  sleep 3
+  threads = Thread.list.filter {|thread| thread.name&.include?('puma srv tp') }
+  threads.each do |thread|
+    puts "[#{thread.native_thread_id}] #{thread.name}"
+  end
+
+  # pull every 1 ms.
+  Sdb.pull(threads, 0.001)
+end
+
+```
+
 WEB_CONCURRENCY=0 RAILS_MAX_THREADS=2 RAILS_ENV=production bundle exec puma -p 3000 > homeland.log
 
 ## Install k6
@@ -20,6 +35,11 @@ It collects 20 seconds data and calculate the last 10 seconds average CPU usage.
 As puma server needs warm up, we only take the last 100 requests into consideration.
 
 grep "puma-delay" homeland.log | tail -n 100 > tail-100.log
+
+## rbspy
+The rate has been set to 1000 as sdb sleep interval is 1ms.
+
+./target/release/rbspy record --rate 1000 --pid <PID> --nonblocking
 
 ```ruby
 analyzer = Sdb::Analyzer::Puma.new('tail-100.log')
