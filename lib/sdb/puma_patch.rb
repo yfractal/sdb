@@ -20,7 +20,7 @@ module Sdb
         rv = super
         t1 = Time.now
         cpu_time1 = CPUTime.time
-        Sdb::PumaPatch.logger.info "trace_id=#{trace_id}, thread_id=#{Thread.current.native_thread_id}, remote_port=#{client.io.peeraddr[1]}, delay=#{(t1 - t0) * 1000} ms, cpu_time=#{(cpu_time1 - cpu_time0) * 1000 } ms"
+        Sdb::PumaPatch.logger.info "[SDB][puma-delay]: trace_id=#{trace_id}, thread_id=#{Thread.current.native_thread_id}, remote_port=#{client.io.peeraddr[1]}, delay=#{(t1 - t0) * 1000} ms, cpu_time=#{(cpu_time1 - cpu_time0) * 1000 } ms"
 
         rv
       ensure
