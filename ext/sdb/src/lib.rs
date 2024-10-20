@@ -1,7 +1,7 @@
+mod iseq_logger;
+
 use chrono::Utc;
-use fast_log::config::Config;
 use libc::{c_char, c_int, c_long, c_void, pthread_self, pthread_t};
-use log::Log;
 
 use rb_sys::{
     rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
@@ -16,8 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{ptr, slice, thread};
 
-const FAST_LOG_CHAN_LEN: usize = 100_000;
-const ISEQS_BUFFER_SIZE: usize = 100_000;
+use iseq_logger::IseqLogger;
 
 struct PullData {
     current_thread: VALUE,
@@ -83,12 +82,7 @@ unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
-    let logger = fast_log::init(
-        Config::new()
-            .file("sdb.log")
-            .chan_len(Some(FAST_LOG_CHAN_LEN)),
-    )
-    .unwrap();
+    let mut iseq_logger = IseqLogger::new();
 
     let data: &mut PullData = ptr_to_struct(data);
 
@@ -97,8 +91,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     init_trace_id_table();
     let trace_table = get_trace_id_table();
     let mut i = 0;
-    let mut iseqs_buffer: [u64; ISEQS_BUFFER_SIZE] = [0; ISEQS_BUFFER_SIZE];
-    let mut iseqs_buffer_index: usize = 0;
 
     // init for avoding reallocation as it is accessed without any locks
     // program can insert before init which may cause issuess ...
@@ -113,8 +105,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     loop {
         if data.stop {
-            log::info!("[stack_frames][{:?}]", &iseqs_buffer[..iseqs_buffer_index]);
-            logger.flush();
+            iseq_logger.flush();
             return ptr::null_mut();
         }
 
@@ -126,8 +117,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
                 record_thread_frames(
                     thread,
                     trace_table,
-                    &mut iseqs_buffer,
-                    &mut iseqs_buffer_index,
+                    &mut iseq_logger,
                 );
             }
 
@@ -144,8 +134,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     trace_table: &HashMap<u64, u64>,
-    iseqs_buffer: &mut [u64; ISEQS_BUFFER_SIZE],
-    iseqs_buffer_index: &mut usize,
+    iseq_logger: &mut IseqLogger,
 ) {
     // todo: get the ec before the loop
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
@@ -163,8 +152,8 @@ unsafe extern "C" fn record_thread_frames(
 
     let ts = Utc::now().timestamp_micros();
 
-    push_buffer(iseqs_buffer, iseqs_buffer_index, *trace_id);
-    push_buffer(iseqs_buffer, iseqs_buffer_index, ts as u64);
+    iseq_logger.push(*trace_id);
+    iseq_logger.push(ts as u64);
 
     for item in slice {
         let iseq: &rb_iseq_struct = &*item.iseq;
@@ -174,23 +163,10 @@ unsafe extern "C" fn record_thread_frames(
         // It may cause too much troubles, so we consider how to read cframe in the future.
         let iseq_addr = iseq as *const _ as u64;
 
-        push_buffer(iseqs_buffer, iseqs_buffer_index, iseq_addr);
+        iseq_logger.push(iseq_addr);
     }
 
-    // seperator
-    push_buffer(iseqs_buffer, iseqs_buffer_index, u64::MAX);
-    push_buffer(iseqs_buffer, iseqs_buffer_index, u64::MAX);
-}
-
-#[inline]
-fn push_buffer(iseqs_buffer: &mut [u64; ISEQS_BUFFER_SIZE], iseqs_buffer_index: &mut usize, item: u64) {
-    if *iseqs_buffer_index < ISEQS_BUFFER_SIZE {
-        iseqs_buffer[*iseqs_buffer_index] = item;
-        *iseqs_buffer_index += 1;
-    } else {
-        log::info!("[stack_frames][{:?}]", iseqs_buffer);
-        *iseqs_buffer_index = 0;
-    }
+    iseq_logger.push_seperator();
 }
 
 unsafe extern "C" fn pull(module: VALUE, threads: VALUE, sleep_seconds: VALUE) -> VALUE {
