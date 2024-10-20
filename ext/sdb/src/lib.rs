@@ -95,7 +95,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     init_trace_id_table();
     let trace_table = get_trace_id_table();
-    let mut iseqs: HashSet<u64> = HashSet::new();
     let mut i = 0;
 
     // init for avoding reallocation as it is accessed without any locks
@@ -117,9 +116,10 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
         let mut i: isize = 0;
         while i < threads_count {
+            // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
             if thread != data.current_thread {
-                record_thread_frames(thread, trace_table, &mut iseqs);
+                record_thread_frames(thread, trace_table);
             }
 
             i += 1;
@@ -135,7 +135,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     trace_table: &HashMap<u64, u64>,
-    methods_table: &mut HashSet<u64>,
 ) {
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
@@ -159,7 +158,6 @@ unsafe extern "C" fn record_thread_frames(
             // But for getting it, we need to make sure the sp doesn't change and the rb_callable_method_entry_t hasn't been freed.
             // It may cause too much troubles, so we consider how to read cframe in the future.
             let iseq_addr = iseq as *const _ as u64;
-            methods_table.insert(iseq_addr);
             log = format!("{}, {}", log, iseq_addr);
         }
     }
