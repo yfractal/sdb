@@ -35,7 +35,7 @@ impl<'a> IseqLogger<'a> {
             self.buffer[self.buffer_index] = item;
             self.buffer_index += 1;
         } else {
-            log::info!("[stack_frames][{:?}]", self.buffer);
+            log::info!("[stack_frames]{:?}", self.buffer);
             self.buffer_index = 0;
         }
     }
