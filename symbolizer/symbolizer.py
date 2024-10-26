@@ -226,8 +226,12 @@ int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     struct RString *label;
     bpf_probe_read(&label, sizeof(label), &body_ptr->location.label);
 
+    struct VALUE *first_lineno;
+    bpf_probe_read(&first_lineno, sizeof(first_lineno), &body_ptr->location.first_lineno);
+
     struct event_t event = {};
     event.iseq_addr = (u64) iseq;
+    event.first_lineno = (long)(first_lineno) >> 1;
     event.event = 3;
     read_rstring(label, event.name);
     events.perf_submit(ctx, &event, sizeof(event));
