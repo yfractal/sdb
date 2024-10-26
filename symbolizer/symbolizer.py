@@ -107,6 +107,10 @@ struct rb_iseq_struct {
     // ...
 };
 
+#define ISEQ_BODY_OFFSET offsetof(struct rb_iseq_struct, body)
+#define ISEQ_BODY_LOCATION_OFFSET offsetof(struct rb_iseq_constant_body, location)
+#define ISEQ_BODY_LOCATION_LABEL_OFFSET offsetof(struct rb_iseq_location_struct, label)
+
 BPF_PERF_OUTPUT(events);
 
 struct event_t {
@@ -214,11 +218,18 @@ int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
 
 int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct rb_iseq_t *iseq = (struct rb_iseq_t *) PT_REGS_RC(ctx);
+    struct rb_iseq_struct *iseq = (struct rb_iseq_struct *) PT_REGS_RC(ctx);
+
+    struct rb_iseq_constant_body *body_ptr;
+    bpf_probe_read(&body_ptr, sizeof(body_ptr), &iseq->body);
+
+    struct RString *label;
+    bpf_probe_read(&label, sizeof(label), &body_ptr->location.label);
 
     struct event_t event = {};
     event.iseq_addr = (u64) iseq;
     event.event = 3;
+    read_rstring(label, event.name);
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
