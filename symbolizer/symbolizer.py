@@ -107,10 +107,6 @@ struct rb_iseq_struct {
     // ...
 };
 
-#define ISEQ_BODY_OFFSET offsetof(struct rb_iseq_struct, body)
-#define ISEQ_BODY_LOCATION_OFFSET offsetof(struct rb_iseq_constant_body, location)
-#define ISEQ_BODY_LOCATION_LABEL_OFFSET offsetof(struct rb_iseq_location_struct, label)
-
 BPF_PERF_OUTPUT(events);
 
 struct event_t {
@@ -228,6 +224,9 @@ int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     struct RString *label;
     bpf_probe_read(&label, sizeof(label), &body_ptr->location.label);
 
+    struct RString *path;
+    bpf_probe_read(&path, sizeof(path), &body_ptr->location.pathobj);
+
     struct VALUE *first_lineno;
     bpf_probe_read(&first_lineno, sizeof(first_lineno), &body_ptr->location.first_lineno);
 
@@ -239,28 +238,8 @@ int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     event.first_lineno = (long)(first_lineno) >> 1;
     event.event = 2;
     read_rstring(label, event.name);
-    events.perf_submit(ctx, &event, sizeof(event));
-
-    return 0;
-}
-
-int rb_iseq_pathobj_set_instrument(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 pid = pid_tgid >> 32;
-    u64 tid = pid_tgid & 0xFFFFFFFF;
-
-    const struct rb_iseq_struct *iseq;
-    bpf_probe_read_user(&iseq, sizeof(iseq), (void *)PT_REGS_PARM1(ctx));
-
-    struct RString *path;
-    bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM2(ctx));
-
-    struct event_t event = {};
-    event.pid = pid;
-    event.tid = tid;
-    event.iseq_addr = (u64) iseq;
-    event.event = 3;
     read_rstring(path, event.path);
+    events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
@@ -292,8 +271,6 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="r
 
 # bootsnap loaded iseqs
 b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_instrument")
-# void rb_iseq_pathobj_set(const rb_iseq_t *iseq, VALUE path, VALUE realpath)
-b.attach_uprobe(name=binary_path, sym="rb_iseq_pathobj_set", fn_name="rb_iseq_pathobj_set_instrument")
 
 
 # TODO: capture c functions
