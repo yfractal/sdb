@@ -117,8 +117,7 @@ struct event_t {
     char name[MAX_STR_LENGTH];
     char path[MAX_STR_LENGTH];
     u64 iseq_addr;
-    u32 event;
-    u32 debug; // 0 for start, 1 for end
+    u32 debug;
 };
 
 BPF_HASH(events_map, u64, struct event_t);
@@ -243,20 +242,18 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * MAX_STR_LENGTH),
         ("path", ctypes.c_char * MAX_STR_LENGTH),
         ("iseq_addr", ctypes.c_uint64),
-        ("event", ctypes.c_uint32),
         ("debug", ctypes.c_uint32),
     ]
 
     def to_dict(self):
         data = {
-            "pid": self.pid,
-            "tid": self.tid,
-            "ts": self.ts,
+            # "pid": self.pid,
+            # "tid": self.tid,
+            # "ts": self.ts,
             "first_lineno": self.first_lineno,
             "name": self.name.decode('utf-8').rstrip('\x00'),
             "path": self.path.decode('utf-8').rstrip('\x00'),
             "iseq_addr": self.iseq_addr,
-            "event": self.event,
             "debug": self.debug,
         }
 
