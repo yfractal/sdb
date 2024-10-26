@@ -12,6 +12,7 @@ bpf_text = """
 
 // for ruby 3.1.5 only
 typedef unsigned long VALUE;
+typedef unsigned long ID;
 
 struct RBasic {
     VALUE flags;
@@ -33,6 +34,77 @@ struct RString {
             char ary[24];
         } embed;
     } as;
+};
+
+typedef struct rb_iseq_location_struct {
+    VALUE pathobj;      /* String (path) or Array [path, realpath]. Frozen. */
+    VALUE base_label;   /* String */
+    VALUE label;        /* String */
+    VALUE first_lineno; /* TODO: may be unsigned short */
+    int node_id;
+    // ...
+} rb_iseq_location_t;
+
+struct rb_iseq_constant_body {
+    enum iseq_type {
+	ISEQ_TYPE_TOP,
+	ISEQ_TYPE_METHOD,
+	ISEQ_TYPE_BLOCK,
+	ISEQ_TYPE_CLASS,
+	ISEQ_TYPE_RESCUE,
+	ISEQ_TYPE_ENSURE,
+	ISEQ_TYPE_EVAL,
+	ISEQ_TYPE_MAIN,
+	ISEQ_TYPE_PLAIN
+    } type;              /* instruction sequence type */
+
+    unsigned int iseq_size;
+    VALUE *iseq_encoded; /* encoded iseq (insn addr and operands) */
+
+    struct {
+	struct {
+	    unsigned int has_lead   : 1;
+	    unsigned int has_opt    : 1;
+	    unsigned int has_rest   : 1;
+	    unsigned int has_post   : 1;
+	    unsigned int has_kw     : 1;
+	    unsigned int has_kwrest : 1;
+	    unsigned int has_block  : 1;
+
+	    unsigned int ambiguous_param0 : 1; /* {|a|} */
+	    unsigned int accepts_no_kwarg : 1;
+            unsigned int ruby2_keywords: 1;
+	} flags;
+	unsigned int size;
+	int lead_num;
+	int opt_num;
+	int rest_start;
+	int post_start;
+	int post_num;
+	int block_start;
+
+	const VALUE *opt_table; /* (opt_num + 1) entries. */
+
+	const struct rb_iseq_param_keyword {
+            int num;
+            int required_num;
+            int bits_start;
+            int rest_start;
+            const ID *table;
+            VALUE *default_values;
+        } *keyword;
+    } param;
+
+    rb_iseq_location_t location;
+    // ...
+};
+
+struct rb_iseq_struct {
+    VALUE flags;
+    VALUE wrapper;
+
+    struct rb_iseq_constant_body *body;
+    // ...
 };
 
 BPF_PERF_OUTPUT(events);
@@ -139,6 +211,18 @@ int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
 int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
     return rb_iseq_return_instrument(ctx, 1);
 }
+
+int ibf_load_iseq_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    struct rb_iseq_t *iseq = (struct rb_iseq_t *) PT_REGS_RC(ctx);
+
+    struct event_t event = {};
+    event.iseq_addr = (u64) iseq;
+    event.event = 3;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
 """
 
 b = BPF(text=bpf_text)
@@ -163,6 +247,9 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_ise
 
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
+
+b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_instrument")
+
 
 # TODO: capture c functions
 class Event(ctypes.Structure):
