@@ -218,6 +218,8 @@ int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
 
 int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
     struct rb_iseq_struct *iseq = (struct rb_iseq_struct *) PT_REGS_RC(ctx);
 
     struct rb_iseq_constant_body *body_ptr;
@@ -230,14 +232,39 @@ int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     bpf_probe_read(&first_lineno, sizeof(first_lineno), &body_ptr->location.first_lineno);
 
     struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
     event.iseq_addr = (u64) iseq;
     event.first_lineno = (long)(first_lineno) >> 1;
-    event.event = 3;
+    event.event = 2;
     read_rstring(label, event.name);
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
+
+int rb_iseq_pathobj_set_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    const struct rb_iseq_struct *iseq;
+    bpf_probe_read_user(&iseq, sizeof(iseq), (void *)PT_REGS_PARM1(ctx));
+
+    struct RString *path;
+    bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM2(ctx));
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.iseq_addr = (u64) iseq;
+    event.event = 3;
+    read_rstring(path, event.path);
+
+    return 0;
+}
+
 """
 
 b = BPF(text=bpf_text)
@@ -263,7 +290,10 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_ise
 b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
 
+# bootsnap loaded iseqs
 b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_instrument")
+# void rb_iseq_pathobj_set(const rb_iseq_t *iseq, VALUE path, VALUE realpath)
+b.attach_uprobe(name=binary_path, sym="rb_iseq_pathobj_set", fn_name="rb_iseq_pathobj_set_instrument")
 
 
 # TODO: capture c functions
