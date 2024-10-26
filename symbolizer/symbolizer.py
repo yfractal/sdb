@@ -163,56 +163,7 @@ static inline int read_rstring(struct RString *str, char *buff) {
     }
 }
 
-int rb_iseq_instrument(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 pid = pid_tgid >> 32;
-    u64 tid = pid_tgid & 0xFFFFFFFF;
-
-    struct event_t event = {};
-
-    event.pid = pid;
-    event.tid = tid;
-    event.ts = bpf_ktime_get_ns();
-    event.event = 0;
-
-    struct VALUE *first_lineno;
-    bpf_probe_read(&first_lineno, sizeof(first_lineno), (void *)&PT_REGS_PARM5(ctx));
-    event.first_lineno = (long)(first_lineno) >> 1;
-
-    struct RString *name;
-    bpf_probe_read(&name, sizeof(name), (void *)&PT_REGS_PARM2(ctx));
-    read_rstring(name, event.name);
-
-    struct RString *path;
-    bpf_probe_read(&path, sizeof(path), (void *)&PT_REGS_PARM3(ctx));
-    read_rstring(path, event.path);
-
-    events.perf_submit(ctx, &event, sizeof(event));
-
-    return 0;
-}
-
-static inline int rb_iseq_return_instrument(struct pt_regs *ctx, u32 debug) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 ret_val = PT_REGS_RC(ctx);
-    struct event_t event = {};
-    event.iseq_addr = ret_val;
-    event.debug = debug;
-    event.event = 1; // end of func
-    events.perf_submit(ctx, &event, sizeof(event));
-
-    return 0;
-}
-
-int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
-    return rb_iseq_return_instrument(ctx, 0);
-}
-
-int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
-    return rb_iseq_return_instrument(ctx, 1);
-}
-
-int ibf_load_iseq_instrument(struct pt_regs *ctx) {
+static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 pid = pid_tgid >> 32;
     u64 tid = pid_tgid & 0xFFFFFFFF;
@@ -236,12 +187,24 @@ int ibf_load_iseq_instrument(struct pt_regs *ctx) {
     event.ts = bpf_ktime_get_ns();
     event.iseq_addr = (u64) iseq;
     event.first_lineno = (long)(first_lineno) >> 1;
-    event.event = 2;
+    event.debug = debug;
     read_rstring(label, event.name);
     read_rstring(path, event.path);
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
+}
+
+int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 0);
+}
+
+int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 1);
+}
+
+int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 2);
 }
 
 """
@@ -263,14 +226,11 @@ binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
 # rb_iseq_new_eval
 #   call rb_iseq_new_with_opt
 # rb_iseq_new_with_opt is used recursively, such as a function with block or rescue
-b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_return_instrument")
-
-b.attach_uprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
 
 # bootsnap loaded iseqs
-b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_instrument")
+b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_return_instrument")
 
 
 # TODO: capture c functions
