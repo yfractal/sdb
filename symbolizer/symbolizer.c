@@ -29,6 +29,50 @@ struct RString {
     } as;
 };
 
+typedef uint32_t attr_index_t;
+
+struct rb_id_table {};
+struct rb_subclass_entry {};
+struct RClass {};
+typedef VALUE (*rb_alloc_func_t)(VALUE klass);
+typedef uint32_t attr_index_t;
+
+struct rb_classext_struct {
+    VALUE *iv_ptr;
+    struct rb_id_table *const_tbl;
+    struct rb_id_table *callable_m_tbl;
+    struct rb_id_table *cc_tbl; /* ID -> [[ci1, cc1], [ci2, cc2] ...] */
+    struct rb_id_table *cvc_tbl;
+    size_t superclass_depth;
+    VALUE *superclasses;
+    struct rb_subclass_entry *subclasses;
+    struct rb_subclass_entry *subclass_entry;
+    struct rb_subclass_entry *module_subclass_entry;
+    const VALUE origin_;
+    const VALUE refined_class;
+    union {
+        struct {
+            rb_alloc_func_t allocator;
+        } class;
+        struct {
+            VALUE attached_object;
+        } singleton_class;
+    } as;
+    const VALUE includer;
+    attr_index_t max_iv_count;
+    unsigned char variation_count;
+    bool permanent_classpath : 1;
+    bool cloned : 1;
+    VALUE classpath;
+};
+
+typedef struct rb_classext_struct rb_classext_t;
+
+struct RClass_and_rb_classext_t {
+    struct RClass rclass;
+    rb_classext_t classext;
+};
+
 typedef struct rb_iseq_location_struct {
     VALUE pathobj;      /* String (path) or Array [path, realpath]. Frozen. */
     VALUE base_label;   /* String */
@@ -99,6 +143,8 @@ struct rb_iseq_struct {
     struct rb_iseq_constant_body *body;
     // ...
 };
+
+#define RCLASS_EXT(c) (&((struct RClass_and_rb_classext_t*)(c))->classext)
 
 BPF_PERF_OUTPUT(events);
 
@@ -220,19 +266,21 @@ int rb_define_method_instrument(struct pt_regs *ctx) {
     u64 tid = pid_tgid & 0xFFFFFFFF;
 
     const char *name = (const char *)PT_REGS_PARM2(ctx);
+    VALUE klass = (VALUE)PT_REGS_PARM1(ctx);
+    struct RString *classpth;
+    bpf_probe_read(&classpth, sizeof(classpth), &(RCLASS_EXT(klass)->classpath));
 
     struct event_t event = {};
     event.pid = pid;
     event.tid = tid;
     event.ts = bpf_ktime_get_ns();
     bpf_probe_read_user(&event.name, sizeof(event.name), name);
-    event.iseq_addr = PT_REGS_PARM3(ctx);
+    read_rstring(classpth, event.path);
     event.type = 3;
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
-
 
 int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
