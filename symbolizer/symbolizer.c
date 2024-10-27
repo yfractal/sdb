@@ -232,3 +232,21 @@ int rb_define_method_instrument(struct pt_regs *ctx) {
 
     return 0;
 }
+
+
+int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    event.iseq_addr = PT_REGS_RC(ctx);
+
+    event.debug = 4;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
