@@ -110,7 +110,7 @@ struct event_t {
     char name[MAX_STR_LENGTH];
     char path[MAX_STR_LENGTH];
     u64 iseq_addr;
-    u32 debug;
+    u32 type;
 };
 
 BPF_HASH(events_map, u64, struct event_t);
@@ -155,7 +155,7 @@ static inline int read_rstring(struct RString *str, char *buff) {
     }
 }
 
-static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
+static inline int submit_iseq_event(struct pt_regs *ctx, int type) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 pid = pid_tgid >> 32;
     u64 tid = pid_tgid & 0xFFFFFFFF;
@@ -179,7 +179,7 @@ static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
     event.ts = bpf_ktime_get_ns();
     event.iseq_addr = (u64) iseq;
     event.first_lineno = (long)(first_lineno) >> 1;
-    event.debug = debug;
+    event.type = type;
     read_rstring(label, event.name);
     read_rstring(path, event.path);
     events.perf_submit(ctx, &event, sizeof(event));
@@ -227,7 +227,7 @@ int rb_define_method_instrument(struct pt_regs *ctx) {
     event.ts = bpf_ktime_get_ns();
     bpf_probe_read_user(&event.name, sizeof(event.name), name);
     event.iseq_addr = PT_REGS_PARM3(ctx);
-    event.debug = 3;
+    event.type = 3;
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
@@ -245,7 +245,7 @@ int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
     event.ts = bpf_ktime_get_ns();
     event.iseq_addr = PT_REGS_RC(ctx);
 
-    event.debug = 4;
+    event.type = 4;
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;

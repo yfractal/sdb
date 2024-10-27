@@ -35,7 +35,7 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * MAX_STR_LENGTH),
         ("path", ctypes.c_char * MAX_STR_LENGTH),
         ("iseq_addr", ctypes.c_uint64),
-        ("debug", ctypes.c_uint32),
+        ("type", ctypes.c_uint32),
     ]
 
     def to_dict(self):
@@ -47,7 +47,7 @@ class Event(ctypes.Structure):
             "name": self.name.decode('utf-8').rstrip('\x00'),
             "path": self.path.decode('utf-8').rstrip('\x00'),
             "iseq_addr": self.iseq_addr,
-            "debug": self.debug,
+            "type": self.type,
         }
 
         return data
