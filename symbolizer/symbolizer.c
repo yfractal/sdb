@@ -226,13 +226,12 @@ int rb_define_method_instrument(struct pt_regs *ctx) {
     event.tid = tid;
     event.ts = bpf_ktime_get_ns();
     bpf_probe_read_user(&event.name, sizeof(event.name), name);
-    event.iseq_addr = PT_REGS_PARM3(ctx);
+    event.iseq_addr = PT_REGS_PARM1(ctx); // record klass
     event.type = 3;
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
 }
-
 
 int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -246,6 +245,43 @@ int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
     event.iseq_addr = PT_REGS_RC(ctx);
 
     event.type = 4;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
+
+// VALUE rb_define_module(const char *name)
+int rb_define_module_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    const char *name = (const char *)PT_REGS_PARM1(ctx);
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    bpf_probe_read_user(&event.name, sizeof(event.name), name);
+
+    event.type = 5;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
+
+int rb_define_module_return_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    event.iseq_addr = PT_REGS_RC(ctx);
+
+    event.type = 6;
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;

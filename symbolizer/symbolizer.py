@@ -24,6 +24,8 @@ b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq
 b.attach_uprobe(name=binary_path, sym="rb_define_method", fn_name="rb_define_method_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_method_entry_make", fn_name="rb_method_entry_make_return_instrument")
 
+b.attach_uprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_instrument")
+b.attach_uretprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_return_instrument")
 
 # TODO: capture c functions
 class Event(ctypes.Structure):
