@@ -187,18 +187,6 @@ static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
     return 0;
 }
 
-int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 0);
-}
-
-int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 1);
-}
-
-int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 2);
-}
-
 // rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
 // rb_iseq_t *rb_iseq_new_top     (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent);
 // rb_iseq_t *rb_iseq_new_main    (const rb_ast_body_t *ast,             VALUE path, VALUE realpath,                     const rb_iseq_t *parent, int opt);
@@ -213,3 +201,34 @@ int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
 // rb_iseq_new_eval
 //   call rb_iseq_new_with_opt
 // rb_iseq_new_with_opt is used recursively, such as a function with block or rescue
+int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 0);
+}
+
+int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 1);
+}
+
+int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 2);
+}
+
+// void rb_define_method(VALUE klass, const char *name, VALUE (*func)(ANYARGS), int argc)
+int rb_define_method_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    const char *name = (const char *)PT_REGS_PARM2(ctx);
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    bpf_probe_read_user(&event.name, sizeof(event.name), name);
+    event.iseq_addr = PT_REGS_PARM3(ctx);
+    event.debug = 3;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
