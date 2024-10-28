@@ -14,6 +14,20 @@ with open(current_directory + "/symbolizer.c", "r") as file:
 b = BPF(text=bpf_text)
 binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
 
+# rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
+# rb_iseq_t *rb_iseq_new_top     (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent);
+# rb_iseq_t *rb_iseq_new_main    (const rb_ast_body_t *ast,             VALUE path, VALUE realpath,                     const rb_iseq_t *parent, int opt);
+# rb_iseq_t *rb_iseq_new_eval    (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, int isolated_depth);
+# rb_iseq_t *rb_iseq_new_with_opt(const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, int isolated_depth,
+#                                 enum iseq_type, const rb_compile_option_t*);
+# rb_iseq_t *rb_iseq_new_with_callback(const struct rb_iseq_new_with_callback_callback_func * ifunc,
+#                                                           VALUE name, VALUE path, VALUE realpath, VALUE first_lineno, const rb_iseq_t *parent, enum iseq_type, const rb_compile_option_t*);
+# rb_iseq_new
+# rb_iseq_new_with_opt
+# rb_iseq_new_main
+# rb_iseq_new_eval
+#   call rb_iseq_new_with_opt
+# rb_iseq_new_with_opt is used recursively, such as a function with block or rescue
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_opt", fn_name="rb_iseq_new_with_opt_return_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="rb_iseq_new_with_callback_return_instrument")
 
@@ -27,7 +41,6 @@ b.attach_uretprobe(name=binary_path, sym="rb_method_entry_make", fn_name="rb_met
 b.attach_uprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_return_instrument")
 
-# TODO: capture c functions
 class Event(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint32),

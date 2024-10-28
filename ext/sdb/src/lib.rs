@@ -1,11 +1,13 @@
+mod helpers;
 mod iseq_logger;
+mod trace_id;
 
 use chrono::Utc;
-use libc::{c_char, c_int, c_long, c_void, pthread_self, pthread_t};
+use libc::{c_char, c_void, pthread_self, pthread_t};
 
 use rb_sys::{
-    rb_define_module, rb_define_singleton_method, rb_funcallv, rb_int2inum, rb_intern2, rb_ll2inum,
-    rb_num2dbl, rb_num2ulong, rb_thread_call_without_gvl, Qtrue, RTypedData, ID, RARRAY_LEN, VALUE,
+    rb_define_module, rb_define_singleton_method, rb_int2inum, rb_ll2inum, rb_num2dbl,
+    rb_thread_call_without_gvl, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 
 use rbspy_ruby_structs::ruby_3_1_5::{
@@ -16,44 +18,15 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{ptr, slice, thread};
 
+use helpers::{arvg_to_ptr, call_method, ptr_to_struct, struct_to_ptr};
 use iseq_logger::IseqLogger;
+use trace_id::{get_trace_id_table, set_trace_id};
 
 struct PullData {
     current_thread: VALUE,
     threads: VALUE,
     stop: bool,
     sleep_millis: u32,
-}
-
-static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
-
-fn init_trace_id_table() {
-    unsafe {
-        if TRACE_TABLE.is_null() {
-            let map = Box::new(HashMap::new());
-            TRACE_TABLE = Box::into_raw(map);
-        }
-    }
-}
-
-// The trac_id is set by applications threads and read by stack puller thread.
-// They should not block each other's execuation.
-// Correctness is not our first considertion, we only require hardware can access this atomically.
-fn get_trace_id_table() -> &'static mut HashMap<u64, u64> {
-    unsafe {
-        if TRACE_TABLE.is_null() {
-            init_trace_id_table();
-        }
-        &mut *TRACE_TABLE
-    }
-}
-
-pub unsafe extern "C" fn set_trace_id(_module: VALUE, thread: VALUE, trace_id: VALUE) -> VALUE {
-    let trace_table = get_trace_id_table();
-
-    trace_table.insert(thread, rb_num2ulong(trace_id));
-
-    Qtrue as VALUE
 }
 
 pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALUE {
@@ -78,6 +51,7 @@ pub unsafe extern "C" fn log_gvl_addr(_module: VALUE, thread_val: VALUE) -> VALU
 
 unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
     let data: &mut PullData = ptr_to_struct(data);
+
     data.stop = true;
 }
 
@@ -88,7 +62,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
 
-    init_trace_id_table();
     let trace_table = get_trace_id_table();
     let mut i = 0;
 
@@ -114,11 +87,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
             if thread != data.current_thread {
-                record_thread_frames(
-                    thread,
-                    trace_table,
-                    &mut iseq_logger,
-                );
+                record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
 
             i += 1;
@@ -193,35 +162,6 @@ unsafe extern "C" fn pull(module: VALUE, threads: VALUE, sleep_seconds: VALUE) -
     );
 
     Qtrue as VALUE
-}
-
-#[inline]
-pub fn internal_id(string: &str) -> ID {
-    let str = string.as_ptr() as *const c_char;
-    let len = string.len() as c_long;
-
-    unsafe { rb_intern2(str, len) }
-}
-
-#[inline]
-unsafe fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VALUE]) -> VALUE {
-    let id = internal_id(method);
-    rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE)
-}
-
-#[inline]
-fn struct_to_ptr<T>(data: &mut T) -> *mut c_void {
-    data as *mut T as *mut c_void
-}
-
-#[inline]
-fn ptr_to_struct<T>(ptr: *mut c_void) -> &'static mut T {
-    unsafe { &mut *(ptr as *mut T) }
-}
-
-#[inline]
-fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
-    val as *const [VALUE] as *const VALUE
 }
 
 #[allow(non_snake_case)]
