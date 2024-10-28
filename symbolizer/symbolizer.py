@@ -20,6 +20,12 @@ b.attach_uretprobe(name=binary_path, sym="rb_iseq_new_with_callback", fn_name="r
 # bootsnap loaded iseqs
 b.attach_uretprobe(name=binary_path, sym="ibf_load_iseq", fn_name="ibf_load_iseq_return_instrument")
 
+# c function
+b.attach_uprobe(name=binary_path, sym="rb_define_method", fn_name="rb_define_method_instrument")
+b.attach_uretprobe(name=binary_path, sym="rb_method_entry_make", fn_name="rb_method_entry_make_return_instrument")
+
+b.attach_uprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_instrument")
+b.attach_uretprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_return_instrument")
 
 # TODO: capture c functions
 class Event(ctypes.Structure):
@@ -31,7 +37,7 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * MAX_STR_LENGTH),
         ("path", ctypes.c_char * MAX_STR_LENGTH),
         ("iseq_addr", ctypes.c_uint64),
-        ("debug", ctypes.c_uint32),
+        ("type", ctypes.c_uint32),
     ]
 
     def to_dict(self):
@@ -43,7 +49,7 @@ class Event(ctypes.Structure):
             "name": self.name.decode('utf-8').rstrip('\x00'),
             "path": self.path.decode('utf-8').rstrip('\x00'),
             "iseq_addr": self.iseq_addr,
-            "debug": self.debug,
+            "type": self.type,
         }
 
         return data

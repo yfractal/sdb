@@ -110,7 +110,7 @@ struct event_t {
     char name[MAX_STR_LENGTH];
     char path[MAX_STR_LENGTH];
     u64 iseq_addr;
-    u32 debug;
+    u32 type;
 };
 
 BPF_HASH(events_map, u64, struct event_t);
@@ -155,7 +155,7 @@ static inline int read_rstring(struct RString *str, char *buff) {
     }
 }
 
-static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
+static inline int submit_iseq_event(struct pt_regs *ctx, int type) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 pid = pid_tgid >> 32;
     u64 tid = pid_tgid & 0xFFFFFFFF;
@@ -179,24 +179,12 @@ static inline int submit_iseq_event(struct pt_regs *ctx, int debug) {
     event.ts = bpf_ktime_get_ns();
     event.iseq_addr = (u64) iseq;
     event.first_lineno = (long)(first_lineno) >> 1;
-    event.debug = debug;
+    event.type = type;
     read_rstring(label, event.name);
     read_rstring(path, event.path);
     events.perf_submit(ctx, &event, sizeof(event));
 
     return 0;
-}
-
-int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 0);
-}
-
-int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 1);
-}
-
-int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
-    return submit_iseq_event(ctx, 2);
 }
 
 // rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
@@ -213,3 +201,88 @@ int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
 // rb_iseq_new_eval
 //   call rb_iseq_new_with_opt
 // rb_iseq_new_with_opt is used recursively, such as a function with block or rescue
+int rb_iseq_new_with_opt_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 0);
+}
+
+int rb_iseq_new_with_callback_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 1);
+}
+
+int ibf_load_iseq_return_instrument(struct pt_regs *ctx) {
+    return submit_iseq_event(ctx, 2);
+}
+
+// void rb_define_method(VALUE klass, const char *name, VALUE (*func)(ANYARGS), int argc)
+int rb_define_method_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    const char *name = (const char *)PT_REGS_PARM2(ctx);
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    bpf_probe_read_user(&event.name, sizeof(event.name), name);
+    event.iseq_addr = PT_REGS_PARM1(ctx); // record klass
+    event.type = 3;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
+
+int rb_method_entry_make_return_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    event.iseq_addr = PT_REGS_RC(ctx);
+
+    event.type = 4;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
+
+// VALUE rb_define_module(const char *name)
+int rb_define_module_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    const char *name = (const char *)PT_REGS_PARM1(ctx);
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    bpf_probe_read_user(&event.name, sizeof(event.name), name);
+
+    event.type = 5;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
+
+int rb_define_module_return_instrument(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u64 pid = pid_tgid >> 32;
+    u64 tid = pid_tgid & 0xFFFFFFFF;
+
+    struct event_t event = {};
+    event.pid = pid;
+    event.tid = tid;
+    event.ts = bpf_ktime_get_ns();
+    event.iseq_addr = PT_REGS_RC(ctx);
+
+    event.type = 6;
+    events.perf_submit(ctx, &event, sizeof(event));
+
+    return 0;
+}
