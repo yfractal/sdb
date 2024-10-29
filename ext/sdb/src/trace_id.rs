@@ -25,7 +25,11 @@ pub fn get_trace_id_table() -> &'static mut HashMap<u64, u64> {
     }
 }
 
-pub unsafe extern "C" fn set_trace_id(_module: VALUE, thread: VALUE, trace_id: VALUE) -> VALUE {
+pub(crate) unsafe extern "C" fn rb_set_trace_id(
+    _module: VALUE,
+    thread: VALUE,
+    trace_id: VALUE,
+) -> VALUE {
     let trace_table = get_trace_id_table();
 
     trace_table.insert(thread, rb_num2ulong(trace_id));

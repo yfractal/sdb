@@ -10,9 +10,9 @@ pub fn internal_id(string: &str) -> ID {
 }
 
 #[inline]
-pub unsafe fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VALUE]) -> VALUE {
+pub fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VALUE]) -> VALUE {
     let id = internal_id(method);
-    rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE)
+    unsafe { rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE) }
 }
 
 #[inline]
