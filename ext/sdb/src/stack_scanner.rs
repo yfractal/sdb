@@ -64,7 +64,7 @@ unsafe extern "C" fn record_thread_frames(
     iseq_logger.push_seperator();
 }
 
-unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
+extern "C" fn ubf_do_pull(data: *mut c_void) {
     let data: &mut PullData = ptr_to_struct(data);
 
     data.stop = true;
