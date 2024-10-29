@@ -1,8 +1,8 @@
-use fast_log::config::Config;
+use crate::logger::*;
+
 use fast_log::Logger;
 use log::Log;
 
-const FAST_LOG_CHAN_LEN: usize = 100_000;
 const ISEQS_BUFFER_SIZE: usize = 100_000;
 
 pub struct IseqLogger<'a> {
@@ -14,12 +14,7 @@ pub struct IseqLogger<'a> {
 
 impl<'a> IseqLogger<'a> {
     pub fn new() -> Self {
-        let logger = fast_log::init(
-            Config::new()
-                .file("sdb.log")
-                .chan_len(Some(FAST_LOG_CHAN_LEN)),
-        )
-        .unwrap();
+        let logger = init_logger();
 
         IseqLogger {
             buffer: [0; ISEQS_BUFFER_SIZE],
