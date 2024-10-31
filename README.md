@@ -16,6 +16,17 @@ Event tagging, such as adding trace_id for Puma requests, makes it easier to ide
 
 Moreover, SDB can precisely identify delays, down to a single microsecond.
 
+# How it works
+<img width="634" alt="Screenshot 2024-10-31 at 13 58 55" src="https://github.com/user-attachments/assets/66e8e876-a19f-44f0-8b59-955a69cc3cc3">
+
+Unlike other Ruby stack profilers, SDB doesn't acquire GVL. It only scans stacks, which are then collected into a buffer and written to the log.
+
+As the stack scanner only gathers function addresses, the symbolizer is used for gathering human-readable information, such as function names, files, etc. To achieve this, the symbolizer instruments several Ruby VM methods, such as `rb_iseq_new_with_opt` through eBPF.
+
+SDB adds event tags for categorizing the stacks and the analyzer combines all those logs for us.
+
+
+
 # Usage Example
 ![roda](https://github.com/yfractal/sdb-analyzer/blob/main/images/roda.png)
 
