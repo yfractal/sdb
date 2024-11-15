@@ -7,8 +7,10 @@ const ISEQS_BUFFER_SIZE: usize = 100_000;
 
 pub struct IseqLogger<'a> {
     buffer: [u64; ISEQS_BUFFER_SIZE],
+    buffer1: [u64; ISEQS_BUFFER_SIZE],
     buffer_size: usize,
     buffer_index: usize,
+    current_buffer: usize,
     logger: &'a Logger,
 }
 
@@ -18,8 +20,10 @@ impl<'a> IseqLogger<'a> {
 
         IseqLogger {
             buffer: [0; ISEQS_BUFFER_SIZE],
+            buffer1: [0; ISEQS_BUFFER_SIZE],
             buffer_size: ISEQS_BUFFER_SIZE,
             buffer_index: 0,
+            current_buffer: 0,
             logger: logger,
         }
     }
@@ -27,7 +31,12 @@ impl<'a> IseqLogger<'a> {
     #[inline]
     pub fn push(&mut self, item: u64) {
         if self.buffer_index < self.buffer_size {
-            self.buffer[self.buffer_index] = item;
+            if self.current_buffer == 0 {
+                self.buffer[self.buffer_index] = item;
+            } else {
+                self.buffer1[self.buffer_index] = item;
+            }
+
             self.buffer_index += 1;
         } else {
             log::info!("[stack_frames]{:?}", self.buffer);
@@ -42,7 +51,14 @@ impl<'a> IseqLogger<'a> {
     }
 
     pub fn flush(&mut self) {
-        log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+        if self.current_buffer == 0 {
+            log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+            self.current_buffer = 1; // flip buffer
+        } else {
+            log::info!("[stack_frames][{:?}]", &self.buffer1[..self.buffer_index]);
+            self.current_buffer = 0; // flip buffer
+        }
+
         self.buffer_index = 0;
 
         self.logger.flush();
