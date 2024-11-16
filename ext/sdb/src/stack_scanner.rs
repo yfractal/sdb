@@ -11,9 +11,9 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{ptr, thread};
-
 struct PullData {
     current_thread: VALUE,
     threads: VALUE,
@@ -66,16 +66,21 @@ unsafe extern "C" fn record_thread_frames(
     iseq_logger.push_seperator();
 }
 
-extern "C" fn ubf_do_pull(data: *mut c_void) {
-    let data: &mut PullData = ptr_to_struct(data);
+unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
+    let data = Arc::from_raw(data as *mut PullData);
 
-    data.stop = true;
+    let raw_ptr: *mut PullData = Arc::into_raw(data) as *mut PullData;
+
+    // stop works as a flag, do not need any correctness guarantee
+    if !raw_ptr.is_null() {
+        (*raw_ptr).stop = true;
+    }
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let mut iseq_logger = IseqLogger::new();
 
-    let data: &mut PullData = ptr_to_struct(data);
+    let data = Arc::from_raw(data as *mut PullData);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
 
@@ -124,20 +129,21 @@ pub(crate) unsafe extern "C" fn rb_pull(
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
 
-    let mut data = PullData {
+    let data = PullData {
         current_thread: current_thread,
         threads: threads,
         stop: false,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
 
+    // data is used by both scanner thread(producer) and symbolizer thread(consumer)
+    // and they could update data at the same time, so can't wrap with any lock.
+    // TODO: make the data more rust
+    let arc = Arc::new(data);
+    let raw_ptr = Arc::into_raw(arc) as *mut c_void;
+
     // release gvl for avoiding block application's threads
-    rb_thread_call_without_gvl(
-        Some(do_pull),
-        struct_to_ptr(&mut data),
-        Some(ubf_do_pull),
-        struct_to_ptr(&mut data),
-    );
+    rb_thread_call_without_gvl(Some(do_pull), raw_ptr, Some(ubf_do_pull), raw_ptr);
 
     Qtrue as VALUE
 }
