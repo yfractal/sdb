@@ -57,7 +57,9 @@ unsafe extern "C" fn record_thread_frames(
             let cref_or_me = *item.sp.offset(-3);
             iseq_logger.push(cref_or_me as u64);
         } else {
-            iseq_logger.push(iseq_addr);
+            let mut item = iseq_addr;
+            item |= 1 << 63;
+            iseq_logger.push(item);
         }
     }
 
