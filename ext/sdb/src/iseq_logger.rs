@@ -7,7 +7,7 @@ use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
 use std::ffi::CStr;
 use std::sync::{Arc, Condvar, Mutex};
 
-const ISEQS_BUFFER_SIZE: usize = 1000_000;
+const ISEQS_BUFFER_SIZE: usize = 1000;
 
 pub struct IseqLogger<'a> {
     buffer: Box<[u64; ISEQS_BUFFER_SIZE]>,
@@ -36,10 +36,9 @@ impl<'a> IseqLogger<'a> {
 
     pub fn log_iseq(&self) {
         let mut i = 0;
-
         let mut raw_iseq;
-        while i < ISEQS_BUFFER_SIZE {
 
+        while i < ISEQS_BUFFER_SIZE {
             if self.current_buffer == 0 {
                 raw_iseq = self.buffer1[0];
             } else {
@@ -47,10 +46,8 @@ impl<'a> IseqLogger<'a> {
             }
             let type_bit = (raw_iseq >> 63) & 1;
 
-            if type_bit == 1 {
-                let mut iseq_addr = raw_iseq;
-                iseq_addr &= !(1 << 63);
-                let iseq_ptr = iseq_addr as *const rb_iseq_struct;
+            if type_bit == 1 && raw_iseq != u64::MAX {
+                let iseq_ptr = raw_iseq as *const rb_iseq_struct;
 
                 let iseq: &rb_iseq_struct = unsafe { &*iseq_ptr };
                 let body = unsafe { *iseq.body };
@@ -62,12 +59,13 @@ impl<'a> IseqLogger<'a> {
                         .to_str()
                         .expect("Invalid UTF-8");
                     log::info!("[iseq][{}]", label);
-                    self.logger.flush();
                 };
             }
 
             i += 1;
         }
+
+        self.logger.flush();
     }
 
     #[inline]
