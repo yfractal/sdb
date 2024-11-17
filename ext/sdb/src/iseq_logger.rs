@@ -1,26 +1,30 @@
 use crate::logger::*;
+use crate::symbolizer::*;
 
 use fast_log::Logger;
 use log::Log;
+use std::sync::Arc;
 
-const ISEQS_BUFFER_SIZE: usize = 100_000;
+pub(crate) const ISEQS_BUFFER_SIZE: usize = 100_000;
 
-pub struct IseqLogger<'a> {
-    buffer: [u64; ISEQS_BUFFER_SIZE],
+pub(crate) struct IseqLogger<'a> {
+    buffer: Box<[u64; ISEQS_BUFFER_SIZE]>,
     buffer_size: usize,
     buffer_index: usize,
     logger: &'a Logger,
+    symbolizer: Arc<Symbolizer>,
 }
 
 impl<'a> IseqLogger<'a> {
-    pub fn new() -> Self {
+    pub fn new(symbolizer: Arc<Symbolizer>) -> Self {
         let logger = init_logger();
 
         IseqLogger {
-            buffer: [0; ISEQS_BUFFER_SIZE],
+            buffer: Box::new([0; ISEQS_BUFFER_SIZE]),
             buffer_size: ISEQS_BUFFER_SIZE,
             buffer_index: 0,
             logger: logger,
+            symbolizer: symbolizer,
         }
     }
 
@@ -29,8 +33,14 @@ impl<'a> IseqLogger<'a> {
         if self.buffer_index < self.buffer_size {
             self.buffer[self.buffer_index] = item;
             self.buffer_index += 1;
+            unsafe {
+                self.symbolizer.push(item);
+            }
         } else {
-            log::info!("[stack_frames]{:?}", self.buffer);
+            self.symbolizer.wait_producer();
+            self.symbolizer.notify_consumer();
+
+            log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
             self.buffer_index = 0;
         }
     }
@@ -41,10 +51,15 @@ impl<'a> IseqLogger<'a> {
         self.push(u64::MAX);
     }
 
-    pub fn flush(&mut self) {
+    pub unsafe fn stop(&mut self) {
         log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
 
+        self.logger.flush();
+    }
+
+    #[inline]
+    pub fn flush(&self) {
         self.logger.flush();
     }
 }

@@ -1,5 +1,6 @@
 use crate::helpers::*;
 use crate::iseq_logger::*;
+use crate::symbolizer::*;
 use crate::trace_id::*;
 
 use chrono::Utc;
@@ -11,14 +12,16 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{ptr, thread};
-
-struct PullData {
+pub(crate) struct PullData<'a> {
     current_thread: VALUE,
     threads: VALUE,
-    stop: bool,
+    pub(crate) stop: bool,
     sleep_millis: u32,
+    pub(crate) symbolizer: Arc<Symbolizer>,
+    pub(crate) iseq_logger: Arc<IseqLogger<'a>>,
 }
 
 #[inline]
@@ -57,23 +60,29 @@ unsafe extern "C" fn record_thread_frames(
             let cref_or_me = *item.sp.offset(-3);
             iseq_logger.push(cref_or_me as u64);
         } else {
-            iseq_logger.push(iseq_addr);
+            let mut item = iseq_addr;
+            item |= 1 << 63;
+            iseq_logger.push(item);
         }
     }
 
     iseq_logger.push_seperator();
 }
 
-extern "C" fn ubf_do_pull(data: *mut c_void) {
-    let data: &mut PullData = ptr_to_struct(data);
+unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
+    let data = Arc::from_raw(data as *mut PullData);
 
-    data.stop = true;
+    let raw_ptr: *mut PullData = Arc::into_raw(data) as *mut PullData;
+
+    // stop works as a flag, do not need any correctness guarantee
+    if !raw_ptr.is_null() {
+        (*raw_ptr).stop = true;
+    }
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
-    let mut iseq_logger = IseqLogger::new();
-
-    let data: &mut PullData = ptr_to_struct(data);
+    let data = Arc::from_raw(data as *mut PullData).clone();
+    let iseq_logger = &mut *(Arc::into_raw(data.iseq_logger.clone()) as *mut IseqLogger);
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
 
@@ -93,7 +102,10 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     loop {
         if data.stop {
-            iseq_logger.flush();
+            unsafe {
+                iseq_logger.stop();
+            }
+
             return ptr::null_mut();
         }
 
@@ -101,8 +113,9 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         while i < threads_count {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
+
             if thread != data.current_thread {
-                record_thread_frames(thread, trace_table, &mut iseq_logger);
+                record_thread_frames(thread, trace_table, iseq_logger);
             }
 
             i += 1;
@@ -122,20 +135,29 @@ pub(crate) unsafe extern "C" fn rb_pull(
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
 
-    let mut data = PullData {
+    let symbolizer = Arc::new(Symbolizer::new());
+    let iseq_logger = Arc::new(IseqLogger::new(symbolizer.clone()));
+
+    let data = PullData {
         current_thread: current_thread,
         threads: threads,
         stop: false,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
+        symbolizer: symbolizer.clone(),
+        iseq_logger: iseq_logger.clone(),
     };
 
+    // data is used by both scanner thread(producer) and symbolizer thread(consumer)
+    // and they could update data at the same time, so can't wrap with any lock.
+    // TODO: make the data more rust
+    let arc = Arc::new(data);
+    let raw_ptr = Arc::into_raw(arc.clone()) as *mut c_void;
+
+    let argv = &[raw_ptr as VALUE];
+    call_method(module, "start_symbolizer_thread", 1, argv);
+
     // release gvl for avoiding block application's threads
-    rb_thread_call_without_gvl(
-        Some(do_pull),
-        struct_to_ptr(&mut data),
-        Some(ubf_do_pull),
-        struct_to_ptr(&mut data),
-    );
+    rb_thread_call_without_gvl(Some(do_pull), raw_ptr, Some(ubf_do_pull), raw_ptr);
 
     Qtrue as VALUE
 }
