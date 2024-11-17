@@ -76,14 +76,8 @@ unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
 
     // stop works as a flag, do not need any correctness guarantee
     if !raw_ptr.is_null() {
-        println!("[ubf_do_pull] stoppppp!!!");
+        println!("[ubf_do_pull] stop!!!");
         (*raw_ptr).stop = true;
-        // could I do this?
-        let (lock, cvar) = &*(*raw_ptr).consume_condvar_pair.clone();
-        let mut ready = lock.lock().unwrap();
-        *ready = true;
-        println!("[ubf_do_pull] Stop consumer if it's waiting");
-        cvar.notify_one();
     }
 }
 
@@ -122,7 +116,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         while i < threads_count {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
-            // let iseq_logger= Arc::into_raw(iseq_logger.clone()) as *mut IseqLogger;
 
             if thread != data.current_thread {
                 record_thread_frames(thread, trace_table, iseq_logger);
@@ -172,6 +165,25 @@ pub(crate) unsafe extern "C" fn rb_pull(
     Qtrue as VALUE
 }
 
+unsafe extern "C" fn ubf_do_wait(data: *mut c_void) {
+    println!("[ubf_do_wait] called!!!");
+    let data = Arc::from_raw(data as *mut PullData);
+
+    let raw_ptr: *mut PullData = Arc::into_raw(data) as *mut PullData;
+
+    // stop works as a flag, do not need any correctness guarantee
+    if !raw_ptr.is_null() {
+        println!("[ubf_do_wait] stoppppp!!!");
+        (*raw_ptr).stop = true;
+        // could I do this?
+        let (lock, cvar) = &*(*raw_ptr).consume_condvar_pair.clone();
+        let mut ready = lock.lock().unwrap();
+        *ready = true;
+        println!("[ubf_do_wait] Stop consumer if it's waiting");
+        cvar.notify_one();
+    }
+}
+
 #[inline]
 unsafe extern "C" fn do_wait(data_ptr: *mut c_void) -> *mut c_void {
     let data = Arc::from_raw(data_ptr as *mut PullData).clone();
@@ -189,15 +201,16 @@ unsafe extern "C" fn do_wait(data_ptr: *mut c_void) -> *mut c_void {
 }
 
 pub(crate) unsafe extern "C" fn symbolize(_module: VALUE, data_ptr: VALUE) -> VALUE {
-    println!("[symbolize]");
     let ptr = data_ptr as *mut c_void;
-    let data = Arc::from_raw(ptr as *mut PullData).clone();
+    let data = Arc::from_raw(data_ptr as *mut PullData);
+    let data_clone = data.clone();
 
-    while !data.stop {
-        println!("[symbolize] waiting");
-        rb_thread_call_without_gvl(Some(do_wait), ptr, Some(ubf_do_pull), ptr);
-        println!("[symbolize] log");
-        data.iseq_logger.log_iseq();
+    while !data_clone.stop {
+        let new_ptr = Arc::into_raw(data.clone()) as *mut c_void;
+        // use new arc for avoiding the data has been freed in callback
+        rb_thread_call_without_gvl(Some(do_wait), ptr, Some(ubf_do_wait), new_ptr);
+
+        data_clone.iseq_logger.log_iseq();
     }
 
     println!("[symbolize] finsihed");
