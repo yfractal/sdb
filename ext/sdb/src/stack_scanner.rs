@@ -88,12 +88,8 @@ unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
-    print!("here..........");
     let data = Arc::from_raw(data as *mut PullData).clone();
-    print!("there..........");
     let iseq_logger = &mut *(Arc::into_raw(data.iseq_logger.clone()) as *mut IseqLogger);
-    // let mut iseq_logger = data.iseq_logger.clone();
-    print!("therexxxx..........");
 
     let threads_count = RARRAY_LEN(data.threads) as isize;
 
@@ -113,6 +109,8 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     loop {
         if data.stop {
+            println!("[do_pull] stopped");
+
             unsafe {
                 iseq_logger.stop();
             }
@@ -167,23 +165,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
     let argv = &[raw_ptr as VALUE];
     call_method(module, "start_symbolizer_thread", 1, argv);
 
-    ctrlc::set_handler(move || {
-        let data_ptr = Arc::into_raw(arc.clone()) as *mut c_void;
-        let data = Arc::from_raw(data_ptr as *mut PullData);
-        let raw_ptr: *mut PullData = Arc::into_raw(data) as *mut PullData;
-
-        // todo: puma thread doesn't stop ...
-        if !raw_ptr.is_null() {
-            (*raw_ptr).stop = true;
-            let (lock, cvar) = &*(*raw_ptr).consume_condvar_pair.clone();
-            let mut ready = lock.lock().unwrap();
-            *ready = true;
-            println!("[my handler] Stop consumer if it's waiting");
-            cvar.notify_one();
-        }
-    })
-    .expect("Error setting Ctrl+C handler");
-
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(Some(do_pull), raw_ptr, Some(ubf_do_pull), raw_ptr);
     println!("rb_pull finished");
@@ -191,6 +172,7 @@ pub(crate) unsafe extern "C" fn rb_pull(
     Qtrue as VALUE
 }
 
+#[inline]
 unsafe extern "C" fn do_wait(data_ptr: *mut c_void) -> *mut c_void {
     let data = Arc::from_raw(data_ptr as *mut PullData).clone();
     let (lock, cvar) = &*data.consume_condvar_pair.clone();

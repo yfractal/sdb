@@ -91,13 +91,11 @@ impl<'a> IseqLogger<'a> {
 
             if self.current_buffer == 0 {
                 log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
-                self.current_buffer = 1; // flip buffer
+                self.current_buffer = 1; // flip the buffer
             } else {
                 log::info!("[stack_frames][{:?}]", &self.buffer1[..self.buffer_index]);
-                self.current_buffer = 0; // flip buffer
+                self.current_buffer = 0; // flip the buffer
             }
-
-            log::info!("[stack_frames]{:?}", self.buffer);
 
             self.buffer_index = 0;
         }
@@ -110,8 +108,16 @@ impl<'a> IseqLogger<'a> {
     }
 
     pub unsafe fn stop(&mut self) {
-        // After this has been called, no more push, so do not need to update buffer_index
-        // self.buffer_index = 0;
+        if self.current_buffer == 0 {
+            log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+            self.current_buffer = 1; // flip the buffer
+        } else {
+            log::info!("[stack_frames][{:?}]", &self.buffer1[..self.buffer_index]);
+            self.current_buffer = 0; // flip the buffer
+        }
+
+        self.buffer_index = 0;
+
         self.logger.flush();
     }
 }
