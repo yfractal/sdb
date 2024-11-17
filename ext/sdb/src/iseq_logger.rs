@@ -9,7 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 const ISEQS_BUFFER_SIZE: usize = 1000;
 
-pub struct IseqLogger<'a> {
+pub(crate) struct IseqLogger<'a> {
     buffer: Box<[u64; ISEQS_BUFFER_SIZE]>,
     buffer1: Box<[u64; ISEQS_BUFFER_SIZE]>,
     buffer_size: usize,
@@ -17,10 +17,14 @@ pub struct IseqLogger<'a> {
     current_buffer: usize,
     logger: &'a Logger,
     consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
+    produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl<'a> IseqLogger<'a> {
-    pub fn new(consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>) -> Self {
+    pub fn new(
+        consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
+        produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
+    ) -> Self {
         let logger = init_logger();
 
         IseqLogger {
@@ -31,6 +35,7 @@ impl<'a> IseqLogger<'a> {
             current_buffer: 0,
             logger: logger,
             consume_condvar_pair: consume_condvar_pair,
+            produce_condvar_pair: produce_condvar_pair,
         }
     }
 
@@ -70,9 +75,6 @@ impl<'a> IseqLogger<'a> {
 
     #[inline]
     pub fn push(&mut self, item: u64) {
-        // if self.buffer_index % 10000 == 0 {
-        //     println!("...........{}", self.buffer_index);
-        // }
         if self.buffer_index < self.buffer_size {
             if self.current_buffer == 0 {
                 self.buffer[self.buffer_index] = item;

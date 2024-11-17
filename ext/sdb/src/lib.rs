@@ -3,6 +3,7 @@ mod helpers;
 mod iseq_logger;
 mod logger;
 mod stack_scanner;
+mod symbolizer;
 mod trace_id;
 
 use libc::c_char;
@@ -10,6 +11,7 @@ use rb_sys::{rb_define_module, rb_define_singleton_method, VALUE};
 
 use gvl::*;
 use stack_scanner::*;
+use symbolizer::*;
 use trace_id::*;
 
 #[allow(non_snake_case)]
