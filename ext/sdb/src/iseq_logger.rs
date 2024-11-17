@@ -12,10 +12,8 @@ const ISEQS_BUFFER_SIZE: usize = 1000;
 
 pub(crate) struct IseqLogger<'a> {
     buffer: Box<[u64; ISEQS_BUFFER_SIZE]>,
-    buffer1: Box<[u64; ISEQS_BUFFER_SIZE]>,
     buffer_size: usize,
     buffer_index: usize,
-    current_buffer: usize,
     logger: &'a Logger,
     symbolizer: Arc<Symbolizer>,
 }
@@ -26,10 +24,8 @@ impl<'a> IseqLogger<'a> {
 
         IseqLogger {
             buffer: Box::new([0; ISEQS_BUFFER_SIZE]),
-            buffer1: Box::new([0; ISEQS_BUFFER_SIZE]),
             buffer_size: ISEQS_BUFFER_SIZE,
             buffer_index: 0,
-            current_buffer: 0,
             logger: logger,
             symbolizer: symbolizer,
         }
@@ -40,11 +36,8 @@ impl<'a> IseqLogger<'a> {
         let mut raw_iseq;
 
         while i < ISEQS_BUFFER_SIZE {
-            if self.current_buffer == 0 {
-                raw_iseq = self.buffer1[0];
-            } else {
-                raw_iseq = self.buffer1[1];
-            }
+            raw_iseq = self.buffer[i];
+
             let type_bit = (raw_iseq >> 63) & 1;
 
             if type_bit == 1 && raw_iseq != u64::MAX {
@@ -72,25 +65,13 @@ impl<'a> IseqLogger<'a> {
     #[inline]
     pub fn push(&mut self, item: u64) {
         if self.buffer_index < self.buffer_size {
-            if self.current_buffer == 0 {
-                self.buffer[self.buffer_index] = item;
-            } else {
-                self.buffer1[self.buffer_index] = item;
-            }
-
+            self.buffer[self.buffer_index] = item;
             self.buffer_index += 1;
         } else {
             self.symbolizer.wait_producer();
             self.symbolizer.notify_consumer();
 
-            if self.current_buffer == 0 {
-                log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
-                self.current_buffer = 1; // flip the buffer
-            } else {
-                log::info!("[stack_frames][{:?}]", &self.buffer1[..self.buffer_index]);
-                self.current_buffer = 0; // flip the buffer
-            }
-
+            log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
             self.buffer_index = 0;
         }
     }
@@ -102,14 +83,7 @@ impl<'a> IseqLogger<'a> {
     }
 
     pub unsafe fn stop(&mut self) {
-        if self.current_buffer == 0 {
-            log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
-            self.current_buffer = 1; // flip the buffer
-        } else {
-            log::info!("[stack_frames][{:?}]", &self.buffer1[..self.buffer_index]);
-            self.current_buffer = 0; // flip the buffer
-        }
-
+        log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
 
         self.logger.flush();
