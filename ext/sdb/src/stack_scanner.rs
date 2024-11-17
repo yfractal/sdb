@@ -1,12 +1,10 @@
 use crate::helpers::*;
 use crate::iseq_logger::*;
-use crate::symbolizer;
 use crate::symbolizer::*;
 use crate::trace_id::*;
 
 use chrono::Utc;
 use libc::c_void;
-use rb_sys::symbol;
 use rb_sys::{
     rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
@@ -14,7 +12,7 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{ptr, thread};
 pub(crate) struct PullData<'a> {
@@ -140,13 +138,9 @@ pub(crate) unsafe extern "C" fn rb_pull(
 ) -> VALUE {
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
-    let consume_condvar_pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let produce_condvar_pair = Arc::new((Mutex::new(true), Condvar::new()));
+
     let symbolizer = Arc::new(Symbolizer::new());
-    let iseq_logger = Arc::new(IseqLogger::new(
-        consume_condvar_pair.clone(),
-        produce_condvar_pair.clone(),
-    ));
+    let iseq_logger = Arc::new(IseqLogger::new(symbolizer.clone()));
 
     let data = PullData {
         current_thread: current_thread,

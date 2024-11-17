@@ -1,11 +1,12 @@
 use crate::logger::*;
+use crate::symbolizer::*;
 
 use fast_log::Logger;
 use log::Log;
 use rb_sys::{rb_string_value_cstr, VALUE};
 use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
 use std::ffi::CStr;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
 const ISEQS_BUFFER_SIZE: usize = 1000;
 
@@ -16,15 +17,11 @@ pub(crate) struct IseqLogger<'a> {
     buffer_index: usize,
     current_buffer: usize,
     logger: &'a Logger,
-    consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
-    produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
+    symbolizer: Arc<Symbolizer>,
 }
 
 impl<'a> IseqLogger<'a> {
-    pub fn new(
-        consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
-        produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
-    ) -> Self {
+    pub fn new(symbolizer: Arc<Symbolizer>) -> Self {
         let logger = init_logger();
 
         IseqLogger {
@@ -34,8 +31,7 @@ impl<'a> IseqLogger<'a> {
             buffer_index: 0,
             current_buffer: 0,
             logger: logger,
-            consume_condvar_pair: consume_condvar_pair,
-            produce_condvar_pair: produce_condvar_pair,
+            symbolizer: symbolizer,
         }
     }
 
@@ -84,10 +80,8 @@ impl<'a> IseqLogger<'a> {
 
             self.buffer_index += 1;
         } else {
-            let (lock, cvar) = &*self.consume_condvar_pair;
-            let mut ready = lock.lock().unwrap();
-            *ready = true;
-            cvar.notify_one();
+            self.symbolizer.wait_producer();
+            self.symbolizer.notify_consumer();
 
             if self.current_buffer == 0 {
                 log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
