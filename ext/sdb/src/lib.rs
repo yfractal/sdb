@@ -45,5 +45,16 @@ extern "C" fn Init_sdb() {
             Some(log_gvl_addr_callback),
             1,
         );
+
+        let symbolize_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(symbolize);
+        rb_define_singleton_method(
+            module,
+            "symbolize\0".as_ptr() as _,
+            Some(symbolize_callback),
+            1,
+        );
     }
 }
