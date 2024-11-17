@@ -70,14 +70,12 @@ unsafe extern "C" fn record_thread_frames(
 }
 
 unsafe extern "C" fn ubf_do_pull(data: *mut c_void) {
-    println!("[ubf_do_pull] called!!!");
     let data = Arc::from_raw(data as *mut PullData);
 
     let raw_ptr: *mut PullData = Arc::into_raw(data) as *mut PullData;
 
     // stop works as a flag, do not need any correctness guarantee
     if !raw_ptr.is_null() {
-        println!("[ubf_do_pull] stop!!!");
         (*raw_ptr).stop = true;
     }
 }
@@ -104,8 +102,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     loop {
         if data.stop {
-            println!("[do_pull] stopped");
-
             unsafe {
                 iseq_logger.stop();
             }
@@ -162,7 +158,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(Some(do_pull), raw_ptr, Some(ubf_do_pull), raw_ptr);
-    println!("rb_pull finished");
 
     Qtrue as VALUE
 }
