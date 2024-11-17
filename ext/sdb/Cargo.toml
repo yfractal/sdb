@@ -18,4 +18,3 @@ rb-sys = { version = "0.9.99", features = ["stable-api"]}
 rbspy-ruby-structs = "0.24.0"
 serde = { version = "1.0.205", features = ["derive"] }
 serde_json = "1.0.122"
-ctrlc = "3.4"
