@@ -12,9 +12,11 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
+use std::sync::atomic;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{ptr, thread};
+
 pub(crate) struct PullData<'a> {
     current_thread: VALUE,
     threads: VALUE,
@@ -42,6 +44,9 @@ unsafe extern "C" fn record_thread_frames(
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
     let slice = slice::from_raw_parts(ec.cfp, len);
+
+    // for reading the newest value of trace_id
+    atomic::fence(atomic::Ordering::Acquire);
     let trace_id = trace_table.get(&thread_val).unwrap_or(&0);
 
     let ts = Utc::now().timestamp_micros();
