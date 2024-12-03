@@ -95,7 +95,7 @@ impl Symbolizer {
     }
 
     pub(crate) fn wait_consumer(&self) {
-        let (lock, cvar) = &*self.produce_condvar_pair.clone();
+        let (lock, cvar) = &*self.consume_condvar_pair.clone();
         let mut ready: std::sync::MutexGuard<'_, bool> = lock.lock().unwrap();
         if !*ready {
             ready = cvar.wait(ready).unwrap();
