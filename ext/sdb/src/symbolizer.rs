@@ -2,7 +2,7 @@ use crate::iseq_logger::*;
 use crate::stack_scanner::*;
 
 use libc::c_void;
-use rb_sys::{rb_string_value_cstr, rb_thread_call_without_gvl, Qtrue, VALUE};
+use rb_sys::{rb_num2ulong, rb_string_value_cstr, rb_thread_call_without_gvl, Qtrue, VALUE};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -137,18 +137,25 @@ impl Symbolizer {
                 let label = location.label;
                 let label_ptr = &mut (label as VALUE) as *mut VALUE;
 
-                let label = CStr::from_ptr(rb_string_value_cstr(label_ptr))
+                let label_str = CStr::from_ptr(rb_string_value_cstr(label_ptr))
                     .to_str()
                     .expect("Invalid UTF-8");
 
                 let path = location.pathobj;
                 let path_ptr = &mut (path as VALUE) as *mut VALUE;
 
-                let path = CStr::from_ptr(rb_string_value_cstr(path_ptr))
+                let path_str = CStr::from_ptr(rb_string_value_cstr(path_ptr))
                     .to_str()
                     .expect("Invalid UTF-8");
+                let first_lineno = location.first_lineno;
+                let first_lineno_long = rb_num2ulong(first_lineno as VALUE);
 
-                log::info!("[iseq][latbel={}, path={}]", label, path);
+                log::info!(
+                    "[iseq][latbel={}, path={}], lineno={}",
+                    label_str,
+                    path_str,
+                    first_lineno_long
+                );
             }
 
             i += 1;
