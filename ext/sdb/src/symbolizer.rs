@@ -27,7 +27,6 @@ use std::ffi::CStr;
 // TODO: remove produce_condvar_pair
 pub(crate) struct Symbolizer {
     consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
-    produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
     saw_iseqs: UnsafeCell<HashMap<u64, bool>>,
     current_buffer: UnsafeCell<usize>,
 
@@ -42,7 +41,6 @@ impl Symbolizer {
     pub(crate) fn new() -> Self {
         Symbolizer {
             consume_condvar_pair: Arc::new((Mutex::new(false), Condvar::new())),
-            produce_condvar_pair: Arc::new((Mutex::new(true), Condvar::new())),
             saw_iseqs: UnsafeCell::new(HashMap::new()),
             current_buffer: UnsafeCell::new(0),
             iseqs_buffer: UnsafeCell::new(Box::new([0; ISEQS_BUFFER_SIZE])),
@@ -76,22 +74,6 @@ impl Symbolizer {
         let mut ready = lock.lock().unwrap();
         *ready = true;
         cvar.notify_one();
-    }
-
-    pub(crate) fn notify_producer(&self) {
-        let (lock, cvar) = &*self.produce_condvar_pair;
-        let mut ready = lock.lock().unwrap();
-        *ready = true;
-        cvar.notify_one();
-    }
-
-    pub(crate) fn wait_producer(&self) {
-        let (lock, cvar) = &*self.produce_condvar_pair.clone();
-        let mut ready: std::sync::MutexGuard<'_, bool> = lock.lock().unwrap();
-        if !*ready {
-            ready = cvar.wait(ready).unwrap();
-            *ready = false;
-        }
     }
 
     pub(crate) fn wait_consumer(&self) {
@@ -152,7 +134,7 @@ impl Symbolizer {
                 let first_lineno_long = rb_num2ulong(first_lineno as VALUE);
 
                 log::info!(
-                    "[iseq][iseq={}, latbel={}, path={}], lineno={}",
+                    "[iseq][iseq={}, label={}, path={}], lineno={}",
                     raw_iseq,
                     label_str,
                     path_str,
@@ -196,7 +178,6 @@ pub(crate) unsafe extern "C" fn symbolize(_module: VALUE, data_ptr: VALUE) -> VA
         rb_thread_call_without_gvl(Some(wait_consumer), ptr, Some(ubf_wait_consumer), new_ptr);
 
         data_clone.symbolizer.flush_iseq_buffer();
-        data_clone.symbolizer.notify_producer();
         data_clone.iseq_logger.flush();
     }
 
