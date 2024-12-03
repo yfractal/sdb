@@ -20,7 +20,7 @@ use std::ffi::CStr;
 // The `consume_condvar_pair` is used to trigger symbolization.
 // When `flush_iseq_buffer` flips the buffers, pushing new iseqs works correctly.
 // However, `flush_iseq_buffer` might not flush the last batch of iseqs if the buffer index is not updated in time.
-// This behavior is considered 'safe' because the unflushed iseqs are not marked as known, 
+// This behavior is considered 'safe' because the unflushed iseqs are not marked as known,
 // allowing them to be re-buffered and processed again.
 
 // The `produce_condvar_pair` prevents the `consume_condvar_pair` notification from being triggered multiple times unnecessarily.
@@ -55,7 +55,7 @@ impl Symbolizer {
     #[inline]
     pub(crate) unsafe fn push(&self, item: u64) {
         if !(*self.known_iseqs.get()).contains_key(&item) {
-            let curent_buffer_idx =  *self.current_buffer.get();
+            let curent_buffer_idx = *self.current_buffer.get();
 
             if curent_buffer_idx == 0 {
                 let idx = *self.iseqs_buffer_idx.get();
@@ -65,7 +65,7 @@ impl Symbolizer {
                 let idx = *self.iseqs_buffer_idx1.get();
                 (*self.iseqs_buffer1.get())[idx] = item;
                 *self.iseqs_buffer_idx1.get() += 1;
-            } 
+            }
         }
     }
 
@@ -132,13 +132,23 @@ impl Symbolizer {
 
                 let iseq: &rb_iseq_struct = unsafe { &*iseq_ptr };
                 let body = unsafe { *iseq.body };
-                let label = body.location.label;
+                // todo check body's type
+                let location = body.location;
+                let label = location.label;
                 let label_ptr = &mut (label as VALUE) as *mut VALUE;
 
                 let label = CStr::from_ptr(rb_string_value_cstr(label_ptr))
                     .to_str()
                     .expect("Invalid UTF-8");
-                log::info!("[iseq][{}]", label);
+
+                let path = location.pathobj;
+                let path_ptr = &mut (path as VALUE) as *mut VALUE;
+
+                let path = CStr::from_ptr(rb_string_value_cstr(path_ptr))
+                    .to_str()
+                    .expect("Invalid UTF-8");
+
+                log::info!("[iseq][latbel={}, path={}]", label, path);
             }
 
             i += 1;
