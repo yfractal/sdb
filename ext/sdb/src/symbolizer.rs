@@ -28,7 +28,7 @@ use std::ffi::CStr;
 pub(crate) struct Symbolizer {
     consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
     produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
-    known_iseqs: UnsafeCell<HashMap<u64, bool>>,
+    saw_iseqs: UnsafeCell<HashMap<u64, bool>>,
     current_buffer: UnsafeCell<usize>,
 
     iseqs_buffer: UnsafeCell<Box<[u64; ISEQS_BUFFER_SIZE]>>,
@@ -43,7 +43,7 @@ impl Symbolizer {
         Symbolizer {
             consume_condvar_pair: Arc::new((Mutex::new(false), Condvar::new())),
             produce_condvar_pair: Arc::new((Mutex::new(true), Condvar::new())),
-            known_iseqs: UnsafeCell::new(HashMap::new()),
+            saw_iseqs: UnsafeCell::new(HashMap::new()),
             current_buffer: UnsafeCell::new(0),
             iseqs_buffer: UnsafeCell::new(Box::new([0; ISEQS_BUFFER_SIZE])),
             iseqs_buffer_idx: UnsafeCell::new(0),
@@ -54,7 +54,7 @@ impl Symbolizer {
 
     #[inline]
     pub(crate) unsafe fn push(&self, item: u64) {
-        if !(*self.known_iseqs.get()).contains_key(&item) {
+        if !(*self.saw_iseqs.get()).contains_key(&item) {
             let curent_buffer_idx = *self.current_buffer.get();
 
             if curent_buffer_idx == 0 {
@@ -66,6 +66,8 @@ impl Symbolizer {
                 (*self.iseqs_buffer1.get())[idx] = item;
                 *self.iseqs_buffer_idx1.get() += 1;
             }
+
+            (*self.saw_iseqs.get()).insert(item, true);
         }
     }
 
@@ -123,7 +125,6 @@ impl Symbolizer {
         while i < idx {
             raw_iseq = (*buffer)[i];
             // suppose(which is not true) Ruby vm doesn't move iseq or free a iseq
-            (*self.known_iseqs.get()).insert(raw_iseq, true);
 
             let type_bit = (raw_iseq >> 63) & 1;
 
@@ -151,7 +152,8 @@ impl Symbolizer {
                 let first_lineno_long = rb_num2ulong(first_lineno as VALUE);
 
                 log::info!(
-                    "[iseq][latbel={}, path={}], lineno={}",
+                    "[iseq][iseq={}, latbel={}, path={}], lineno={}",
+                    raw_iseq,
                     label_str,
                     path_str,
                     first_lineno_long
