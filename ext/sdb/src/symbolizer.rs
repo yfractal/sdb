@@ -1,3 +1,4 @@
+use crate::helpers::*;
 use crate::iseq_logger::*;
 use crate::stack_scanner::*;
 
@@ -7,7 +8,8 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 
-use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
+use rb_sys::ruby_value_type::RUBY_T_STRING;
+use rbspy_ruby_structs::ruby_3_1_5::{rb_iseq_location_struct, rb_iseq_struct};
 use std::ffi::CStr;
 
 // Concurrency Safety
@@ -106,11 +108,11 @@ impl Symbolizer {
 
         while i < idx {
             raw_iseq = (*buffer)[i];
-            // suppose(which is not true) Ruby vm doesn't move iseq or free a iseq
 
             let type_bit = (raw_iseq >> 63) & 1;
 
             if type_bit == 1 && raw_iseq != u64::MAX {
+                // suppose(which is not true) Ruby vm doesn't move iseq or free a iseq
                 let iseq_ptr = raw_iseq as *const rb_iseq_struct;
 
                 let iseq: &rb_iseq_struct = unsafe { &*iseq_ptr };
@@ -124,25 +126,38 @@ impl Symbolizer {
                     .to_str()
                     .expect("Invalid UTF-8");
 
-                let path = location.pathobj;
-                let path_ptr = &mut (path as VALUE) as *mut VALUE;
-
-                let path_str = CStr::from_ptr(rb_string_value_cstr(path_ptr))
-                    .to_str()
-                    .expect("Invalid UTF-8");
                 let first_lineno = location.first_lineno;
                 let first_lineno_long = rb_num2ulong(first_lineno as VALUE);
 
                 log::info!(
-                    "[iseq][iseq={}, label={}, path={}], lineno={}",
+                    "[iseq][iseq={}, label={}, path={}, lineno={}",
                     raw_iseq,
                     label_str,
-                    path_str,
+                    self.path(location),
                     first_lineno_long
                 );
             }
 
             i += 1;
+        }
+    }
+
+    unsafe fn path(&self, location: rb_iseq_location_struct) -> &str {
+        let path = location.pathobj as VALUE;
+        let path_type = rb_type(path);
+
+        if path_type == RUBY_T_STRING as u64 {
+            let path_ptr = &mut (path as VALUE) as *mut VALUE;
+
+            CStr::from_ptr(rb_string_value_cstr(path_ptr))
+                .to_str()
+                .expect("Invalid UTF-8")
+        } else {
+            let mut abs_path_ptr = rb_sys::rb_ary_entry(path, 1);
+
+            CStr::from_ptr(rb_string_value_cstr(&mut abs_path_ptr))
+                .to_str()
+                .expect("Invalid UTF-8")
         }
     }
 }
