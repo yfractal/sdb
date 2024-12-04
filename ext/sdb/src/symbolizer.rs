@@ -113,18 +113,13 @@ impl Symbolizer {
 
             if type_bit == 1 && raw_iseq != u64::MAX {
                 // suppose(which is not true) Ruby vm doesn't move iseq or free a iseq
+                // it seems that, we do not need to set the highest bit to 0 back ..
                 let iseq_ptr = raw_iseq as *const rb_iseq_struct;
 
                 let iseq: &rb_iseq_struct = unsafe { &*iseq_ptr };
                 let body = unsafe { *iseq.body };
                 // todo check body's type
                 let location = body.location;
-                let label = location.label;
-                let label_ptr = &mut (label as VALUE) as *mut VALUE;
-
-                let label_str = CStr::from_ptr(rb_string_value_cstr(label_ptr))
-                    .to_str()
-                    .expect("Invalid UTF-8");
 
                 let first_lineno = location.first_lineno;
                 let first_lineno_long = rb_num2ulong(first_lineno as VALUE);
@@ -132,8 +127,8 @@ impl Symbolizer {
                 log::info!(
                     "[iseq][iseq={}, label={}, path={}, lineno={}",
                     raw_iseq,
-                    label_str,
-                    self.path(location),
+                    self.label_str(raw_iseq, location),
+                    self.path_str(raw_iseq, location),
                     first_lineno_long
                 );
             }
@@ -142,7 +137,28 @@ impl Symbolizer {
         }
     }
 
-    unsafe fn path(&self, location: rb_iseq_location_struct) -> &str {
+    #[inline]
+    unsafe fn label_str(&self, iseq_addr: u64, location: rb_iseq_location_struct) -> &str {
+        let label = location.label;
+        let label_ptr = &mut (label as VALUE) as *mut VALUE;
+        let label_type = rb_type(label as VALUE);
+        if label_type == RUBY_T_STRING as u64 {
+            CStr::from_ptr(rb_string_value_cstr(label_ptr))
+                .to_str()
+                .expect("Invalid UTF-8")
+        } else {
+            log::debug!(
+                "[iseq][symbolizer] label is not a Ruby str iseq={}, location={}",
+                iseq_addr,
+                label
+            );
+
+            ""
+        }
+    }
+
+    #[inline]
+    unsafe fn path_str(&self, iseq_addr: u64, location: rb_iseq_location_struct) -> &str {
         let path = location.pathobj as VALUE;
         let path_type = rb_type(path);
 
@@ -154,10 +170,20 @@ impl Symbolizer {
                 .expect("Invalid UTF-8")
         } else {
             let mut abs_path_ptr = rb_sys::rb_ary_entry(path, 1);
+            let abs_path_ptr_type = rb_type(abs_path_ptr);
+            if abs_path_ptr_type == RUBY_T_STRING as u64 {
+                return CStr::from_ptr(rb_string_value_cstr(&mut abs_path_ptr))
+                    .to_str()
+                    .expect("Invalid UTF-8");
+            } else {
+                log::debug!(
+                    "[iseq][symbolizer] abs_path is not a Ruby str iseq={}, location={}",
+                    iseq_addr,
+                    path
+                );
 
-            CStr::from_ptr(rb_string_value_cstr(&mut abs_path_ptr))
-                .to_str()
-                .expect("Invalid UTF-8")
+                return "";
+            }
         }
     }
 }
