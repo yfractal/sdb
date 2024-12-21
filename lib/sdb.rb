@@ -30,12 +30,5 @@ module Sdb
     def busy_pull(threads)
       self.pull(threads, 0)
     end
-
-    # TODO: do this in Rust
-    def start_symbolizer_thread(data)
-      Thread.new do
-        self.symbolize(data)
-      end
-    end
   end
 end

@@ -3,7 +3,6 @@ mod helpers;
 mod iseq_logger;
 mod logger;
 mod stack_scanner;
-mod symbolizer;
 mod trace_id;
 
 use libc::c_char;
@@ -11,7 +10,6 @@ use rb_sys::{rb_define_module, rb_define_singleton_method, VALUE};
 
 use gvl::*;
 use stack_scanner::*;
-use symbolizer::*;
 use trace_id::*;
 
 #[allow(non_snake_case)]
@@ -45,17 +43,6 @@ extern "C" fn Init_sdb() {
             module,
             "log_gvl_addr_for_thread\0".as_ptr() as _,
             Some(log_gvl_addr_callback),
-            1,
-        );
-
-        let symbolize_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
-            unsafe extern "C" fn() -> VALUE,
-        >(symbolize);
-        rb_define_singleton_method(
-            module,
-            "symbolize\0".as_ptr() as _,
-            Some(symbolize_callback),
             1,
         );
     }
