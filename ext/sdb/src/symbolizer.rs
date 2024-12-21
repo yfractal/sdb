@@ -10,32 +10,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
 use std::ffi::CStr;
 
-// Concurrency Safety
-// The stack scanner pushes iseqs into the symbolizer struct.
-// The symbolizer thread retrieves these iseqs' info and periodically flushes them into a log.
-// To avoid blocking between the two threads (e.g., when the symbolizer consumes iseqs, it should not block the stack scanner),
-// two separate buffers are used, each assigned to a different thread.
-// Since no buffer is accessed by multiple threads at the same time, this design is safe.
-
-// The `consume_condvar_pair` is used to trigger symbolization.
-// When `flush_iseq_buffer` flips the buffers, pushing new iseqs works correctly.
-// However, `flush_iseq_buffer` might not flush the last batch of iseqs if the buffer index is not updated in time.
-// This behavior is considered 'safe' because the unflushed iseqs are not marked as known, 
-// allowing them to be re-buffered and processed again.
-
-// The `produce_condvar_pair` prevents the `consume_condvar_pair` notification from being triggered multiple times unnecessarily.
-// TODO: remove produce_condvar_pair
 pub(crate) struct Symbolizer {
     consume_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
     produce_condvar_pair: Arc<(Mutex<bool>, Condvar)>,
     known_iseqs: UnsafeCell<HashMap<u64, bool>>,
-    current_buffer: UnsafeCell<usize>,
-
     iseqs_buffer: UnsafeCell<Box<[u64; ISEQS_BUFFER_SIZE]>>,
     iseqs_buffer_idx: UnsafeCell<usize>,
-
-    iseqs_buffer1: UnsafeCell<Box<[u64; ISEQS_BUFFER_SIZE]>>,
-    iseqs_buffer_idx1: UnsafeCell<usize>,
 }
 
 impl Symbolizer {
@@ -44,28 +24,16 @@ impl Symbolizer {
             consume_condvar_pair: Arc::new((Mutex::new(false), Condvar::new())),
             produce_condvar_pair: Arc::new((Mutex::new(true), Condvar::new())),
             known_iseqs: UnsafeCell::new(HashMap::new()),
-            current_buffer: UnsafeCell::new(0),
             iseqs_buffer: UnsafeCell::new(Box::new([0; ISEQS_BUFFER_SIZE])),
             iseqs_buffer_idx: UnsafeCell::new(0),
-            iseqs_buffer1: UnsafeCell::new(Box::new([0; ISEQS_BUFFER_SIZE])),
-            iseqs_buffer_idx1: UnsafeCell::new(0),
         }
     }
 
     #[inline]
     pub(crate) unsafe fn push(&self, item: u64) {
         if !(*self.known_iseqs.get()).contains_key(&item) {
-            let curent_buffer_idx =  *self.current_buffer.get();
-
-            if curent_buffer_idx == 0 {
-                let idx = *self.iseqs_buffer_idx.get();
-                (*self.iseqs_buffer.get())[idx] = item;
-                *self.iseqs_buffer_idx.get() += 1;
-            } else {
-                let idx = *self.iseqs_buffer_idx1.get();
-                (*self.iseqs_buffer1.get())[idx] = item;
-                *self.iseqs_buffer_idx1.get() += 1;
-            } 
+            (*self.iseqs_buffer.get())[*self.iseqs_buffer_idx.get()] = item;
+            *self.iseqs_buffer_idx.get() += 1;
         }
     }
 
@@ -102,26 +70,13 @@ impl Symbolizer {
     }
 
     pub(crate) unsafe fn flush_iseq_buffer(&self) {
-        let curent_buffer_idx = *self.current_buffer.get();
-        let idx;
-        let buffer;
-
-        // flap current buffer
-        if curent_buffer_idx == 0 {
-            *self.current_buffer.get() = 1;
-            idx = *self.iseqs_buffer_idx.get();
-            buffer = self.iseqs_buffer.get();
-        } else {
-            *self.current_buffer.get() = 0;
-            idx = *self.iseqs_buffer_idx1.get();
-            buffer = self.iseqs_buffer1.get();
-        }
-
         let mut i = 0;
         let mut raw_iseq;
 
+        let idx = *self.iseqs_buffer_idx.get();
+
         while i < idx {
-            raw_iseq = (*buffer)[i];
+            raw_iseq = (*self.iseqs_buffer.get())[i];
             // suppose(which is not true) Ruby vm doesn't move iseq or free a iseq
             (*self.known_iseqs.get()).insert(raw_iseq, true);
 
