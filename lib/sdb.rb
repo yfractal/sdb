@@ -31,18 +31,10 @@ module Sdb
 
     def thread_deleted(thread)
       @active_threads.delete(thread)
-    end
 
-    def fetch_puma_threads
-      # keep a reference as puller runs without gvl
-      @active_threads = []
-      Thread.list.each do |thread|
-        if thread.name&.include?("puma srv tp")
-          @active_threads << thread
-        end
-      end
-
-      @active_threads
+      # todo: handle lock
+      @threads_to_scan ||= []
+      @threads_to_scan.delete(thread)
     end
 
     def current_thread
@@ -55,6 +47,19 @@ module Sdb
 
     def busy_pull(threads)
       self.pull(threads, 0)
+    end
+
+    def scan_threads(&filter)
+      # todo: lock @active_threads
+      @threads_to_scan = @active_threads.select(&filter)
+
+      self.pull(@threads_to_scan, 0)
+    end
+
+    def scan_puma_threads
+      scan_threads do |thread|
+        thread.name&.include?('puma srv tp')
+      end
     end
   end
 end
