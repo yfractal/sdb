@@ -11,9 +11,9 @@ module Sdb
       old_block = block
 
       block = ->() do
-        puts "before thread start"
+        Sdb.thread_created(Thread.current)
         result = old_block.call(*args)
-        puts "before thread finish"
+        Sdb.thread_deleted(Thread.current)
         result
       end
 
@@ -24,16 +24,25 @@ module Sdb
   Thread.prepend(ThreadInitializePatch)
 
   class << self
+    def thread_created(thread)
+      @active_threads ||= []
+      @active_threads << thread
+    end
+
+    def thread_deleted(thread)
+      @active_threads.delete(thread)
+    end
+
     def fetch_puma_threads
       # keep a reference as puller runs without gvl
-      @threads = []
+      @active_threads = []
       Thread.list.each do |thread|
         if thread.name&.include?("puma srv tp")
-          @threads << thread
+          @active_threads << thread
         end
       end
 
-      @threads
+      @active_threads
     end
 
     def current_thread
