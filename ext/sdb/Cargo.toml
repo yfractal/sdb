@@ -12,9 +12,11 @@ crate-type = ["cdylib"]
 [dependencies]
 chrono = "0.4.38"
 fast_log = "1.7.3"
+lazy_static = "1.5.0"
 libc = "0.2.155"
 log = "0.4.22"
 rb-sys = { version = "0.9.99", features = ["stable-api"]}
 rbspy-ruby-structs = "0.24.0"
 serde = { version = "1.0.205", features = ["derive"] }
 serde_json = "1.0.122"
+spin = "0.9.8"

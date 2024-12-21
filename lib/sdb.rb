@@ -24,17 +24,22 @@ module Sdb
   Thread.prepend(ThreadInitializePatch)
 
   class << self
+    def init
+      @inited = true
+      @threads_to_scan = []
+      @active_threads = []
+    end
+
     def thread_created(thread)
-      @active_threads ||= []
+      init unless @inited
+
       @active_threads << thread
     end
 
     def thread_deleted(thread)
       @active_threads.delete(thread)
 
-      # todo: handle lock
-      @threads_to_scan ||= []
-      @threads_to_scan.delete(thread)
+      delete_inactive_thread(@threads_to_scan, thread)
     end
 
     def current_thread
@@ -49,17 +54,30 @@ module Sdb
       self.pull(threads, 0)
     end
 
-    def scan_threads(&filter)
+    def scan_threads(sleep_interval, &filter)
       # todo: lock @active_threads
-      @threads_to_scan = @active_threads.select(&filter)
+      @active_threads.each do |thread|
+        if filter.call(thread)
+          # do not need lock threads_to_scan as scanner thread hasn't started
+          @threads_to_scan << thread
+        end
+      end
 
-      self.pull(@threads_to_scan, 0)
+      self.pull(@threads_to_scan, sleep_interval)
     end
 
-    def scan_puma_threads
-      scan_threads do |thread|
+    def scan_puma_threads(sleep_interval = 0.001)
+      init unless @inited
+
+      scan_threads(sleep_interval) do |thread|
         thread.name&.include?('puma srv tp')
       end
+    end
+
+    def scan_all_threads(sleep_interval = 0.001)
+      init unless @inited
+
+      scan_threads(sleep_interval) { true }
     end
   end
 end

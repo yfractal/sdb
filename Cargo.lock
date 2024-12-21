@@ -556,12 +556,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "fast_log",
+ "lazy_static",
  "libc",
  "log",
  "rb-sys",
  "rbspy-ruby-structs",
  "serde",
  "serde_json",
+ "spin",
 ]
 
 [[package]]
