@@ -37,6 +37,7 @@ impl<'a> IseqLogger<'a> {
                 self.symbolizer.push(item);
             }
         } else {
+            self.symbolizer.wait_producer();
             self.symbolizer.notify_consumer();
 
             log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
