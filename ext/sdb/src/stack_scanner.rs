@@ -18,10 +18,11 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 lazy_static! {
-    // It should be fine to use the spin lock, as the scanner acquires and releases this lock very quickly.
-    // When a Ruby application holds this lock and is suspended, the scanner will be blocked and busy waiting, it depends on the Ruby thread scheduler, I am not sure if this could happen.
-    // The raw lock needs to work with Ruby VM, but in scanner, it dosn't have GVL, it may cause problems.
-    // Even spin lock is not pefect consider that the thread could be suspended by Ruby VM, but it could work.
+    // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
+    // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
+    // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
+    // I am not sure this could happen and even if it could happen, it should exremely rare.
+    // So, I think it is good choice to use spinlock here
     static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
 }
 
