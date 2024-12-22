@@ -5,7 +5,7 @@ use crate::trace_id::*;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qtrue, RTypedData, RARRAY_LEN, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qtrue, Qnil, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
 
@@ -14,9 +14,21 @@ use std::slice;
 use std::time::Duration;
 use std::{ptr, thread};
 
+use lazy_static::lazy_static;
+use spin::Mutex;
+
+lazy_static! {
+    // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
+    // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
+    // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
+    // I am not sure this could happen and even if it could happen, it should exremely rare.
+    // So, I think it is good choice to use spinlock here
+    static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
+}
+
 struct PullData {
     current_thread: VALUE,
-    threads: VALUE,
+    threads_to_scan: VALUE,
     stop: bool,
     sleep_millis: u32,
 }
@@ -75,7 +87,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     let data: &mut PullData = ptr_to_struct(data);
 
-    let threads_count = RARRAY_LEN(data.threads) as isize;
+    let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
 
     let trace_table = get_trace_id_table();
     let mut i = 0;
@@ -84,7 +96,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     // program can insert before init which may cause issuess ...
     while i < threads_count {
         let argv = &[rb_int2inum(i)];
-        let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads);
+        let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads_to_scan);
 
         trace_table.entry(thread).or_insert(0);
 
@@ -100,9 +112,11 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         let mut i: isize = 0;
         while i < threads_count {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
-            let thread = rb_sys::rb_ary_entry(data.threads, i as i64);
-            if thread != data.current_thread {
+            let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
+            if thread != data.current_thread && thread != Qnil.into() {
+                let lock = THREADS_TO_SCAN_LOCK.lock();
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
+                drop(lock);
             }
 
             i += 1;
@@ -116,7 +130,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
 pub(crate) unsafe extern "C" fn rb_pull(
     module: VALUE,
-    threads: VALUE,
+    threads_to_scan: VALUE,
     sleep_seconds: VALUE,
 ) -> VALUE {
     let argv: &[VALUE; 0] = &[];
@@ -124,7 +138,7 @@ pub(crate) unsafe extern "C" fn rb_pull(
 
     let mut data = PullData {
         current_thread: current_thread,
-        threads: threads,
+        threads_to_scan,
         stop: false,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
@@ -136,6 +150,18 @@ pub(crate) unsafe extern "C" fn rb_pull(
         Some(ubf_do_pull),
         struct_to_ptr(&mut data),
     );
+
+    Qtrue as VALUE
+}
+
+pub(crate) unsafe extern "C" fn rb_delete_inactive_thread(
+    _module: VALUE,
+    threads_to_scan: VALUE,
+    thread: VALUE,
+) -> VALUE {
+    let lock = THREADS_TO_SCAN_LOCK.lock();
+    call_method(threads_to_scan, "delete", 1, &[thread]);
+    drop(lock);
 
     Qtrue as VALUE
 }

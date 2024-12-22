@@ -24,6 +24,17 @@ extern "C" fn Init_sdb() {
         >(rb_pull);
         rb_define_singleton_method(module, "pull\0".as_ptr() as _, Some(pull_callback), 2);
 
+        let delete_inactive_thread_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_delete_inactive_thread);
+        rb_define_singleton_method(
+            module,
+            "delete_inactive_thread\0".as_ptr() as _,
+            Some(delete_inactive_thread_callback),
+            2,
+        );
+
         let set_trace_id_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
