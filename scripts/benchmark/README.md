@@ -1,20 +1,62 @@
-## Run Homeland
-Sdb configuration
+## Basic Setup
+
+- Target application: A forked Homeland(Ruby-China forum)
+- Repo: https://github.com/yfractal/homelandx
+- Branches
+  - main branch for baseline and rbspy
+  - feat-sdb for SDB
+  - feat-vernier for vernier 1.0.0 patched version
+- Puma Start Command
+  - WEB_CONCURRENCY=0 RAILS_MAX_THREADS=2 RAILS_ENV=production bundle exec puma -p 3000
+- Sampling Rate: 1000 times per second
+
+
+## Stack Profilers Setup
+### SDB
+
 ```ruby
 Thread.new do
-  sleep 3
+  sleep 5
+
   threads = Thread.list.filter {|thread| thread.name&.include?('puma srv tp') }
+
   threads.each do |thread|
     puts "[#{thread.native_thread_id}] #{thread.name}"
   end
 
-  # pull every 1 ms.
-  Sdb.pull(threads, 0.001)
+  Sdb.scan_puma_threads(0.001) # set sampling rate to 1000 times per second
 end
-
 ```
 
-WEB_CONCURRENCY=0 RAILS_MAX_THREADS=2 RAILS_ENV=production bundle exec puma -p 3000 > homeland.log
+### Patched Vernier 1.0.0
+The code is on https://github.com/yfractal/vernier v1.0.0-patch branch
+
+For compariation, I use `usleep(1000)` to avoid busy pull and removed GC event hook, see https://github.com/yfractal/vernier/pull/1/files
+
+And enable it through patching puma `handle_servers` method, see https://github.com/yfractal/homelandx/blob/feat-vernier/config/initializers/vernier.rb
+
+```ruby
+module PumaPatch
+  def self.patch
+    Puma::Server.class_eval do
+      alias_method :old_handle_servers, :handle_servers
+
+      def handle_servers
+        Vernier.trace(out: "rails.json", hooks: [:rails], interval: 1000, allocation_interval: 0) do |collector|
+          old_handle_servers
+        end
+      end
+    end
+  end
+end
+
+PumaPatch.patch
+```
+
+### rbspy
+rbspy is started by `./target/release/rbspy record --rate 1000 --pid <PID> --nonblocking`
+TODO rbspy version
+
 
 ## Install k6
 sudo dnf install https://dl.k6.io/rpm/repo.rpm
