@@ -57,6 +57,7 @@ PumaPatch.patch
 rbspy is started by `./target/release/rbspy record --rate 1000 --pid <PID> --nonblocking`
 TODO rbspy version
 
+## Benchmark Process
 
 ## Install k6
 sudo dnf install https://dl.k6.io/rpm/repo.rpm
@@ -65,10 +66,10 @@ sudo dnf install -y k6
 ## Sending Requests
 URL=http://ip-172-31-27-62.ap-southeast-1.compute.internal:3000/api/v3/topics k6 run benchmark.js
 
-It sends requests for 30 seconds in one thread(uv) and such throughput consumes aound 60% CPU of an aws t2 machine's CPU core.
+It sends requests for 30 seconds in one thread(uv) and such throughput consumes aound 60% CPU of on CPU core.
 
 ## CPU Usage
-top -b -n 230 -d 0.1 -p <PID> > top_output.txt
+top -b -n 200 -d 0.1 -p <PID> > top_output.txt
 awk 'NR % 9 == 8' top_output.txt | awk '{print $9}' | tail -n 100 | awk '{sum += $1; count++} END {print sum / count}'
 
 It collects 20 seconds data and calculate the last 10 seconds average CPU usage.
@@ -78,13 +79,17 @@ As puma server needs warm up, we only take the last 100 requests into considerat
 
 grep "puma-delay" homeland.log | tail -n 100 > tail-100.log
 
-## rbspy
-The rate has been set to 1000 as sdb sleep interval is 1ms.
-
-./target/release/rbspy record --rate 1000 --pid <PID> --nonblocking
+## Analysing
 
 ```ruby
 analyzer = Sdb::Analyzer::Puma.new('tail-100.log')
 data = analyzer.read
 puts analyzer.statistic(data)
 ```
+
+## Stack Profiler Impact Measurement
+Since SDB and Vernier are run within the Ruby application, we first need to run Homeland without any profilers to establish a baseline.
+
+Next, enable one stack profiler and run the same test again.
+
+Finally, calculate the stack profiler’s impact by subtracting the baseline result from the test result with the profiler enabled.
