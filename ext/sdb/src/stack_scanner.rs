@@ -112,13 +112,12 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         let mut i: isize = 0;
         while i < threads_count {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
+            let lock = THREADS_TO_SCAN_LOCK.lock();
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
             if thread != data.current_thread && thread != Qnil.into() {
-                let lock = THREADS_TO_SCAN_LOCK.lock();
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
-                drop(lock);
             }
-
+            drop(lock);
             i += 1;
         }
 
