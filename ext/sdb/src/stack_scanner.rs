@@ -5,7 +5,7 @@ use crate::trace_id::*;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qtrue, Qnil, RTypedData, RARRAY_LEN, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
 
@@ -160,6 +160,18 @@ pub(crate) unsafe extern "C" fn rb_delete_inactive_thread(
 ) -> VALUE {
     let lock = THREADS_TO_SCAN_LOCK.lock();
     call_method(threads_to_scan, "delete", 1, &[thread]);
+    drop(lock);
+
+    Qtrue as VALUE
+}
+
+pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
+    _module: VALUE,
+    threads_to_scan: VALUE,
+    thread: VALUE,
+) -> VALUE {
+    let lock = THREADS_TO_SCAN_LOCK.lock();
+    call_method(threads_to_scan, "push", 1, &[thread]);
     drop(lock);
 
     Qtrue as VALUE

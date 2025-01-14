@@ -26,6 +26,7 @@ module Sdb
   class << self
     def init
       @inited = true
+      @scanning = false
       @threads_to_scan = []
       @active_threads = []
     end
@@ -34,6 +35,9 @@ module Sdb
       init unless @inited
 
       @active_threads << thread
+      if @scanning && @filter.call(thread)
+          add_thread_to_scan(@threads_to_scan, thread)
+      end
     end
 
     def thread_deleted(thread)
@@ -56,13 +60,15 @@ module Sdb
 
     def scan_threads(sleep_interval, &filter)
       # todo: lock @active_threads
+      @filter = filter
       @active_threads.each do |thread|
-        if filter.call(thread)
-          # do not need lock threads_to_scan as scanner thread hasn't started
+        if @filter.call(thread)
+          add_thread_to_scan(@threads_to_scan, thread)
           @threads_to_scan << thread
         end
       end
 
+      @scanning = true
       self.pull(@threads_to_scan, sleep_interval)
     end
 

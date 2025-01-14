@@ -35,6 +35,17 @@ extern "C" fn Init_sdb() {
             2,
         );
 
+        let rb_add_thread_to_scan_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_add_thread_to_scan);
+        rb_define_singleton_method(
+            module,
+            "add_thread_to_scan\0".as_ptr() as _,
+            Some(rb_add_thread_to_scan_callback),
+            2,
+        );
+
         let set_trace_id_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
