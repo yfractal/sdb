@@ -68,6 +68,8 @@ RSpec.describe Sdb do
       scan_thread = Thread.new { Sdb.scan_all_threads(1) }
       sleep 1
       expect(Sdb.threads_to_scan).to eq [thread, scan_thread]
+
+      scan_thread.kill
     end
 
     it 'removes inactive threads' do
@@ -86,6 +88,8 @@ RSpec.describe Sdb do
       @stoped = true
       sleep 2
       expect(Sdb.threads_to_scan).to eq [scan_thread]
+
+      scan_thread.kill
     end
   end
 end
