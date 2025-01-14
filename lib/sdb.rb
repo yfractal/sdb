@@ -29,19 +29,25 @@ module Sdb
       @scanning = false
       @threads_to_scan = []
       @active_threads = []
+      @active_threads_lock = Mutex.new
     end
 
     def thread_created(thread)
       init unless @inited
 
+      @active_threads_lock.lock
       @active_threads << thread
+      @active_threads_lock.unlock
+
       if @scanning && @filter.call(thread)
           add_thread_to_scan(@threads_to_scan, thread)
       end
     end
 
     def thread_deleted(thread)
+      @active_threads_lock.lock
       @active_threads.delete(thread)
+      @active_threads_lock.unlock
 
       delete_inactive_thread(@threads_to_scan, thread)
     end
@@ -59,14 +65,14 @@ module Sdb
     end
 
     def scan_threads(sleep_interval, &filter)
-      # todo: lock @active_threads
       @filter = filter
+      @active_threads_lock.lock
       @active_threads.each do |thread|
         if @filter.call(thread)
           add_thread_to_scan(@threads_to_scan, thread)
-          @threads_to_scan << thread
         end
       end
+      @active_threads_lock.unlock
 
       @scanning = true
       self.pull(@threads_to_scan, sleep_interval)
