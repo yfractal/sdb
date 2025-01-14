@@ -24,7 +24,9 @@ module Sdb
   Thread.prepend(ThreadInitializePatch)
 
   class << self
-    def init
+    def init_once
+      return true if @inited
+
       @inited = true
       @scanning = false
       @threads_to_scan = []
@@ -33,7 +35,7 @@ module Sdb
     end
 
     def thread_created(thread)
-      init unless @inited
+      init_once
 
       @active_threads_lock.lock
       @active_threads << thread
@@ -79,7 +81,7 @@ module Sdb
     end
 
     def scan_puma_threads(sleep_interval = 0.001)
-      init unless @inited
+      init_once
 
       scan_threads(sleep_interval) do |thread|
         thread.name&.include?('puma srv tp')
@@ -87,7 +89,7 @@ module Sdb
     end
 
     def scan_all_threads(sleep_interval = 0.001)
-      init unless @inited
+      init_once
 
       scan_threads(sleep_interval) { true }
     end
