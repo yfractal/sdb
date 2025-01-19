@@ -21,7 +21,7 @@ lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
     // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
     // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
-    // I am not sure this could happen and even if it could happen, it should exremely rare.
+    // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
     static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
 }
@@ -98,8 +98,8 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let trace_table = get_trace_id_table();
     let mut i = 0;
 
-    // init for avoding reallocation as it is accessed without any locks
-    // program can insert before init which may cause issuess ...
+    // init to avoid reallocation as it is accessed without any locks
+    // program can insert before init which may cause issues ...
     while i < threads_count {
         let argv = &[rb_int2inum(i)];
         let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads_to_scan);

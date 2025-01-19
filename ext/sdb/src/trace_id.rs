@@ -13,9 +13,9 @@ fn init_trace_id_table() {
     }
 }
 
-// The trac_id is set by applications threads and read by stack puller thread.
-// They should not block each other's execuation.
-// Correctness is not our first considertion, we only require hardware can access this atomically.
+// The trace_id is set by applications threads and read by stack puller thread.
+// They should not block each other's execution.
+// Correctness is not our first consideration, we only require hardware can access this atomically.
 pub fn get_trace_id_table() -> &'static mut HashMap<u64, u64> {
     unsafe {
         if TRACE_TABLE.is_null() {

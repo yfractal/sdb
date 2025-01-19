@@ -2,8 +2,8 @@
 
 module Sdb
   class << self
-    def reinited
-      @inited = false
+    def reinitialize
+      @initialized = false
 
       init_once
     end
@@ -20,7 +20,7 @@ module Sdb
 end
 
 RSpec.describe Sdb do
-  before { Sdb.reinited }
+  before { Sdb.reinitialize }
 
   describe 'sdb keeps active thread list' do
     it 'adds new thread' do
@@ -34,10 +34,10 @@ RSpec.describe Sdb do
 
     it 'removes inactive threads' do
       expect(Sdb.active_threads).to eq []
-      @stoped = false
+      @stopped = false
 
       thread = Thread.new do
-        while !@stoped
+        while !@stopped
           sleep 1
         end
       end
@@ -45,13 +45,13 @@ RSpec.describe Sdb do
       sleep 1
       expect(Sdb.active_threads).to eq [thread]
 
-      @stoped = true
+      @stopped = true
       sleep 2
       expect(Sdb.active_threads.empty?).to eq true
     end
   end
 
-  describe 'sdb keeps threads to scane' do
+  describe 'sdb keeps threads to scan' do
     it 'doesn\'t add thread before scan start' do
       Thread.new { sleep 100000 }
       sleep 1
@@ -73,10 +73,10 @@ RSpec.describe Sdb do
     end
 
     it 'removes inactive threads' do
-      @stoped = false
+      @stopped = false
 
       thread = Thread.new do
-        while !@stoped
+        while !@stopped
           sleep 1
         end
       end
@@ -85,7 +85,7 @@ RSpec.describe Sdb do
       sleep 1
       expect(Sdb.threads_to_scan).to eq [thread, scan_thread]
 
-      @stoped = true
+      @stopped = true
       sleep 2
       expect(Sdb.threads_to_scan).to eq [scan_thread]
 
