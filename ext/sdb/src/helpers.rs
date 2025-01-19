@@ -1,5 +1,5 @@
 use libc::{c_char, c_int, c_long, c_void};
-use rb_sys::{rb_funcallv, rb_intern2, rb_num2long, ID, VALUE, Qnil};
+use rb_sys::{rb_funcallv, rb_intern2, rb_num2long, Qnil, ID, VALUE};
 use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
 
 #[inline]
@@ -38,11 +38,40 @@ pub(crate) unsafe extern "C" fn rb_first_lineno_from_iseq_addr(
     let iseq_addr = rb_num2long(iseq_addr) as *const c_void as u64;
 
     if iseq_addr == 0 {
-        return Qnil as VALUE
+        return Qnil as VALUE;
     }
 
     let iseq = &*(iseq_addr as *const rb_iseq_struct);
     let body = &*iseq.body;
 
     body.location.first_lineno as VALUE
+}
+
+pub(crate) unsafe extern "C" fn rb_label_from_iseq_addr(_module: VALUE, iseq_addr: VALUE) -> VALUE {
+    let iseq_addr = rb_num2long(iseq_addr) as *const c_void as u64;
+
+    if iseq_addr == 0 {
+        return Qnil as VALUE;
+    }
+
+    let iseq = &*(iseq_addr as *const rb_iseq_struct);
+    let body = &*iseq.body;
+
+    body.location.label as VALUE
+}
+
+pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
+    _module: VALUE,
+    iseq_addr: VALUE,
+) -> VALUE {
+    let iseq_addr = rb_num2long(iseq_addr) as *const c_void as u64;
+
+    if iseq_addr == 0 {
+        return Qnil as VALUE;
+    }
+
+    let iseq = &*(iseq_addr as *const rb_iseq_struct);
+    let body = &*iseq.body;
+
+    body.location.base_label as VALUE
 }

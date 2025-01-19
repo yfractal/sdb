@@ -3,11 +3,11 @@
 RSpec.describe Sdb do
   class Foo
     def bar
-      sleep_1000
+      sleep_10000
     end
 
-    def sleep_1000
-      sleep 1000
+    def sleep_10000
+      sleep 10000
     end
   end
 
@@ -29,15 +29,14 @@ RSpec.describe Sdb do
 
       sleep 0.1
 
-      iseq = Sdb.method_iseq(Foo, :sleep_1000)
-
-      addr = Sdb.iseq_addr(Foo, :sleep_1000)
-      addr1 = Sdb.iseq_addr(Foo, :bar)
-
       addresses = Sdb.on_stack_func_addresses(thread)
-      puts addresses.map {|addr| Sdb.first_lineno_from_iseq_addr(addr)}
+      linenos = addresses.map {|addr| Sdb.first_lineno_from_iseq_addr(addr)}
+      labels = addresses.map {|addr| Sdb.label_from_iseq_addr(addr)}
 
-      expect(addresses).to include addr
+      expect(labels[1]).to eq 'sleep_10000'
+      expect(labels[2]).to eq 'bar'
+      expect(linenos[1]).to eq 9
+      expect(linenos[2]).to eq 5
     end
   end
 end

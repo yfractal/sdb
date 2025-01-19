@@ -90,5 +90,27 @@ extern "C" fn Init_sdb() {
             Some(rb_first_lineno_from_iseq_addr_callback),
             1,
         );
+
+        let rb_label_from_iseq_addr_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_label_from_iseq_addr);
+        rb_define_singleton_method(
+            module,
+            "label_from_iseq_addr\0".as_ptr() as _,
+            Some(rb_label_from_iseq_addr_callback),
+            1,
+        );
+
+        let rb_base_label_from_iseq_addr_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_base_label_from_iseq_addr);
+        rb_define_singleton_method(
+            module,
+            "base_label_from_iseq_addr\0".as_ptr() as _,
+            Some(rb_base_label_from_iseq_addr_callback),
+            1,
+        );
     }
 }
