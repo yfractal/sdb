@@ -34,11 +34,8 @@ struct PullData {
 }
 
 #[inline]
-unsafe extern "C" fn record_thread_frames(
-    thread_val: VALUE,
-    trace_table: &HashMap<u64, u64>,
-    iseq_logger: &mut IseqLogger,
-) {
+// Caller needs to guarantee the thread is alive until the end of this function
+unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_frame_struct] {
     // todo: get the ec before the loop
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
@@ -50,7 +47,16 @@ unsafe extern "C" fn record_thread_frames(
     // todo: pass rb_control_frame_struct size in
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
-    let slice = slice::from_raw_parts(ec.cfp, len);
+    slice::from_raw_parts(ec.cfp, len)
+}
+
+#[inline]
+unsafe extern "C" fn record_thread_frames(
+    thread_val: VALUE,
+    trace_table: &HashMap<u64, u64>,
+    iseq_logger: &mut IseqLogger,
+) {
+    let slice = get_control_frame_slice(thread_val);
     let trace_id = trace_table.get(&thread_val).unwrap_or(&0);
 
     let ts = Utc::now().timestamp_micros();
@@ -175,4 +181,29 @@ pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
     drop(lock);
 
     Qtrue as VALUE
+}
+
+// used for testing
+pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
+    _module: VALUE,
+    thread_val: VALUE,
+) -> VALUE {
+    let slice = get_control_frame_slice(thread_val);
+
+    let ary = rb_sys::rb_ary_new_capa(slice.len() as i64);
+
+    for item in slice {
+        let iseq: &rb_iseq_struct = &*item.iseq;
+
+        let iseq_addr = iseq as *const _ as u64;
+
+        if iseq_addr == 0 {
+            let cref_or_me = *item.sp.offset(-3);
+            rb_sys::rb_ary_push(ary, rb_int2inum(cref_or_me as isize));
+        } else {
+            rb_sys::rb_ary_push(ary, rb_int2inum(iseq_addr as isize));
+        }
+    }
+
+    ary
 }

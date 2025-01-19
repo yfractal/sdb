@@ -9,6 +9,7 @@ use libc::c_char;
 use rb_sys::{rb_define_module, rb_define_singleton_method, VALUE};
 
 use gvl::*;
+use helpers::*;
 use stack_scanner::*;
 use trace_id::*;
 
@@ -65,6 +66,28 @@ extern "C" fn Init_sdb() {
             module,
             "log_gvl_addr_for_thread\0".as_ptr() as _,
             Some(log_gvl_addr_callback),
+            1,
+        );
+
+        let rb_get_on_stack_func_addresses_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_get_on_stack_func_addresses);
+        rb_define_singleton_method(
+            module,
+            "on_stack_func_addresses\0".as_ptr() as _,
+            Some(rb_get_on_stack_func_addresses_callback),
+            1,
+        );
+
+        let rb_first_lineno_from_iseq_addr_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_first_lineno_from_iseq_addr);
+        rb_define_singleton_method(
+            module,
+            "first_lineno_from_iseq_addr\0".as_ptr() as _,
+            Some(rb_first_lineno_from_iseq_addr_callback),
             1,
         );
     }
