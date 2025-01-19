@@ -25,9 +25,9 @@ module Sdb
 
   class << self
     def init_once
-      return true if @inited
+      return true if @initialized
 
-      @inited = true
+      @initialized = true
       @scanning = false
       @threads_to_scan = []
       @active_threads = []

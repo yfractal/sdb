@@ -66,7 +66,7 @@ sudo dnf install -y k6
 ## Sending Requests
 URL=http://ip-172-31-27-62.ap-southeast-1.compute.internal:3000/api/v3/topics k6 run benchmark.js
 
-It sends requests for 30 seconds in one thread(uv) and such throughput consumes aound 60% CPU of on CPU core.
+It sends requests for 30 seconds in one thread(uv) and such throughput consumes around 60% CPU of on CPU core.
 
 ## CPU Usage
 top -b -n 200 -d 0.1 -p <PID> > top_output.txt
