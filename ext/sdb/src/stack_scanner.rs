@@ -11,6 +11,7 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
+use std::sync::atomic;
 use std::time::Duration;
 use std::{ptr, thread};
 
@@ -57,6 +58,9 @@ unsafe extern "C" fn record_thread_frames(
     iseq_logger: &mut IseqLogger,
 ) {
     let slice = get_control_frame_slice(thread_val);
+
+    // for reading the newest value of trace_id
+    atomic::fence(atomic::Ordering::Acquire);
     let trace_id = trace_table.get(&thread_val).unwrap_or(&0);
 
     let ts = Utc::now().timestamp_micros();
@@ -69,7 +73,7 @@ unsafe extern "C" fn record_thread_frames(
 
         let iseq_addr = iseq as *const _ as u64;
 
-        // iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
+        // Iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
             let cref_or_me = *item.sp.offset(-3);
@@ -96,18 +100,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
 
     let trace_table = get_trace_id_table();
-    let mut i = 0;
-
-    // init to avoid reallocation as it is accessed without any locks
-    // program can insert before init which may cause issues ...
-    while i < threads_count {
-        let argv = &[rb_int2inum(i)];
-        let thread = rb_sys::rb_ary_aref(1, arvg_to_ptr(argv), data.threads_to_scan);
-
-        trace_table.entry(thread).or_insert(0);
-
-        i += 1
-    }
 
     loop {
         if data.stop {
@@ -177,6 +169,9 @@ pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
     thread: VALUE,
 ) -> VALUE {
     let lock = THREADS_TO_SCAN_LOCK.lock();
+    // THREADS_TO_SCAN_LOCK guarantees mutually exclusive access, which blocks the scanner thread.
+    // As the trace-id table doesn't have a lock, inserting a dummy value to avoid hash reallocation.
+    set_trace_id(thread, 0);
     call_method(threads_to_scan, "push", 1, &[thread]);
     drop(lock);
 
