@@ -1,6 +1,7 @@
 use rb_sys::{rb_num2ulong, Qfalse, Qtrue, VALUE};
 use std::collections::HashMap;
 use std::ptr;
+use std::sync::atomic;
 
 static mut TRACE_TABLE: *mut HashMap<u64, u64> = ptr::null_mut();
 
@@ -40,6 +41,7 @@ pub(crate) unsafe extern "C" fn set_trace_id(thread: VALUE, trace_id: u64) -> bo
     let trace_table = get_trace_id_table();
 
     trace_table.insert(thread, trace_id);
+    atomic::fence(atomic::Ordering::Release);
 
     true
 }
