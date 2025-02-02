@@ -1,6 +1,7 @@
 use crate::helpers::*;
 use crate::iseq_logger::*;
 use crate::trace_id::*;
+use std::sync::atomic::AtomicU64;
 
 use chrono::Utc;
 use libc::c_void;
@@ -11,7 +12,6 @@ use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb
 
 use std::collections::HashMap;
 use std::slice;
-use std::sync::atomic;
 use std::time::Duration;
 use std::{ptr, thread};
 
@@ -54,18 +54,16 @@ unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_fra
 #[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
-    trace_table: &HashMap<u64, u64>,
+    trace_table: &HashMap<u64, AtomicU64>,
     iseq_logger: &mut IseqLogger,
 ) {
     let slice = get_control_frame_slice(thread_val);
 
-    // for reading the newest value of trace_id
-    atomic::fence(atomic::Ordering::Acquire);
-    let trace_id = trace_table.get(&thread_val).unwrap_or(&0);
+    let trace_id = get_trace_id(trace_table, thread_val);
 
     let ts = Utc::now().timestamp_micros();
 
-    iseq_logger.push(*trace_id);
+    iseq_logger.push(trace_id);
     iseq_logger.push(ts as u64);
 
     for item in slice {

@@ -26,11 +26,6 @@ pub fn ptr_to_struct<T>(ptr: *mut c_void) -> &'static mut T {
     unsafe { &mut *(ptr as *mut T) }
 }
 
-#[inline]
-pub fn arvg_to_ptr(val: &[VALUE]) -> *const VALUE {
-    val as *const [VALUE] as *const VALUE
-}
-
 pub(crate) unsafe extern "C" fn rb_first_lineno_from_iseq_addr(
     _module: VALUE,
     iseq_addr: VALUE,
