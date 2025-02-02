@@ -39,9 +39,12 @@ pub fn get_trace_id_table() -> &'static mut HashMap<u64, AtomicU64> {
 #[inline]
 pub(crate) unsafe extern "C" fn set_trace_id(thread: VALUE, trace_id: u64) -> bool {
     let trace_table = get_trace_id_table();
-    let trace_id_atomic = AtomicU64::new(trace_id);
+    let thread_id = thread as u64;
 
-    trace_table.insert(thread as u64, trace_id_atomic);
+    trace_table
+        .entry(thread_id)
+        .or_insert_with(|| AtomicU64::new(trace_id))
+        .store(trace_id, Ordering::Release);
 
     true
 }
