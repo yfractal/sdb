@@ -26,7 +26,7 @@ fn init_trace_id_table() {
 // Additionally, when SDB needs to read this, it uses a memory barrier for getting the newest value.
 // Therefore, I believe this implementation is safe even though it has a lot of "unsafe" code. Yes, it is tricky.
 #[inline]
-pub fn get_trace_id_table() -> &'static mut HashMap<u64, AtomicU64> {
+pub(crate) fn get_trace_id_table() -> &'static mut HashMap<u64, AtomicU64> {
     unsafe {
         if TRACE_TABLE.is_null() {
             init_trace_id_table();
@@ -37,7 +37,7 @@ pub fn get_trace_id_table() -> &'static mut HashMap<u64, AtomicU64> {
 }
 
 #[inline]
-pub(crate) unsafe extern "C" fn set_trace_id(thread: VALUE, trace_id: u64) -> bool {
+pub(crate) fn set_trace_id(thread: VALUE, trace_id: u64) -> bool {
     let trace_table = get_trace_id_table();
     let thread_id = thread as u64;
 
@@ -47,6 +47,15 @@ pub(crate) unsafe extern "C" fn set_trace_id(thread: VALUE, trace_id: u64) -> bo
         .store(trace_id, Ordering::Release);
 
     true
+}
+
+// When we use a memory order, do we need to consider a function as unsafe?
+#[inline]
+pub(crate) fn get_trace_id(trace_table: &HashMap<u64, AtomicU64>, thread: VALUE) -> u64 {
+    trace_table
+        .get(&thread)
+        .map(|atomic| atomic.load(Ordering::Acquire))
+        .unwrap_or(0)
 }
 
 pub(crate) unsafe extern "C" fn rb_set_trace_id(
