@@ -29,7 +29,3 @@ echo 'CONFIG_KALLSYMS_ALL=y' >> .config
 # prepare headers
 echo 'Preparing headers...'
 make prepare
-
-mkdir -p /lib/modules/$(uname -r)
-
-# ln -s /usr/src/$(uname -r) /lib/modules/6.6.26-linuxkit/build
