@@ -1,0 +1,33 @@
+# Download and build headers manually for Docker Desktop, as the required kernel headers may not be available.
+FROM ubuntu:22.04 AS header-builder
+
+COPY ./build/build_kernel_header.sh /usr/local/bin/build_kernel_header
+RUN chmod +x /usr/local/bin/build_kernel_header
+
+RUN apt-get update -y
+RUN apt-get install -y wget
+# for building headers
+RUN apt-get install -y make build-essential flex bison bc
+
+RUN /usr/local/bin/build_kernel_header
+
+FROM ubuntu:22.04
+
+COPY --from=header-builder /linux-headers /linux-headers
+RUN mkdir -p /lib/modules/$(uname -r)
+RUN ln -s /linux-headers /lib/modules/$(uname -r)/build
+
+RUN apt-get update -y
+# bcc tools are installed in /usr/share/bcc/tools, for example /usr/sbin/opensnoop-bpfcc
+RUN apt-get install -y bpfcc-tools
+
+RUN apt-get install -y curl
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.56.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN apt-get install -y vim
+
+COPY ./ /sdb
+WORKDIR /sdb
+
+CMD ["bash"]
