@@ -1,38 +1,66 @@
+require 'sdb'
+
 @a = []
 def xxxxxx
+  sleep 0.01
   puts "[#{Process.pid}] native_thread_id=#{Thread.current.native_thread_id}"
 end
 
-def b
+def bbbbbb
   @a = [1] * rand(1000)
   puts Thread.list
   xxxxxx
 end
 
-def c
+def cccccc
   @a = "1" * rand(1000)
-  b
+  bbbbbb
 end
 
-def d
+def dddddd
   @a = "a" * rand(1000)
-  c
+  cccccc
 end
 
 def fffffff
-  d
+  dddddd
 end
 
 Thread.new do
-  Thread.current.name = "test-bbbb"
-  loop do
-    sleep 1
+  sleep 0.5
+  100.times do
     fffffff
-    puts "compact result = #{GC.compact}"
+  end
+
+  x = [rand] * 10013
+
+  puts x
+  puts "compact result = #{GC.compact}"
+
+  100.times do
+    fffffff
+  end
+
+
+  y = "abc" * 10013
+  puts y
+  puts "compact result = #{GC.compact}"
+
+  100.times do
+    fffffff
+  end
+
+  puts "compact result = #{GC.compact}"
+
+  loop do
+    fffffff
+    # puts "compact result = #{GC.compact}"
   end
 end
 
-Thread.current.name = "test-aaaaaaaaa"
+Thread.new do
+  Sdb.scan_all_threads
+end
 
 loop do
   sleep 1

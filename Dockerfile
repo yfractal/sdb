@@ -47,7 +47,7 @@ ENV RBENV_ROOT /root/.rbenv
 RUN rbenv install 3.1.5 && rbenv global 3.1.5
 RUN /bin/bash -c "source /etc/profile.d/rbenv.sh && gem install bundler"
 
-RUN apt-get install -y vim
+RUN apt-get install -y vim fish gdb
 
 COPY ./ /sdb
 WORKDIR /sdb
