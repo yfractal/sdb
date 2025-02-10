@@ -12,4 +12,4 @@ gem "rb_sys", "~> 0.9.63"
 
 gem "rspec", "~> 3.0"
 
-gem 'cpu_time', :git => 'git@github.com:yfractal/cpu_time.git'
+gem 'cpu_time'
