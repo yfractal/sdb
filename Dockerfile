@@ -22,7 +22,7 @@ RUN apt-get update -y
 RUN apt-get install -y bpfcc-tools
 
 RUN apt-get install -y curl
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.56.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.78.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN apt-get install -y git
@@ -33,7 +33,8 @@ RUN apt-get install -y \
     libreadline-dev \
     libyaml-dev \
     libxml2-dev \
-    libxslt-dev
+    libxslt-dev \
+    libclang-dev
 RUN git clone https://github.com/sstephenson/rbenv.git /root/.rbenv
 RUN git clone https://github.com/sstephenson/ruby-build.git /root/.rbenv/plugins/ruby-build
 RUN /root/.rbenv/plugins/ruby-build/install.sh
@@ -43,12 +44,14 @@ RUN chmod +x /etc/profile.d/rbenv.sh
 RUN echo 'export PATH="$HOME/.rbenv/bin:$PATH"' >> ~/.bashrc
 RUN echo 'eval "$(rbenv init -)"' >> ~/.bashrc
 ENV RBENV_ROOT /root/.rbenv
-
 RUN rbenv install 3.1.5 && rbenv global 3.1.5
+RUN /bin/bash -c "source /etc/profile.d/rbenv.sh && gem install bundler"
 
 RUN apt-get install -y vim
 
 COPY ./ /sdb
 WORKDIR /sdb
+RUN --mount=type=ssh /bin/bash -c "source /etc/profile.d/rbenv.sh && bundle install"
+RUN --mount=type=ssh /bin/bash -c "source /etc/profile.d/rbenv.sh && bundle exec rake compile"
 
 CMD ["bash"]
