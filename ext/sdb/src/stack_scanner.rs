@@ -9,6 +9,7 @@ use rb_sys::{
     rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use sysinfo::System;
 
 use std::collections::HashMap;
 use std::slice;
@@ -90,8 +91,24 @@ extern "C" fn ubf_do_pull(data: *mut c_void) {
     data.stop = true;
 }
 
+// eBPF only has uptime, this function returns both uptime and clock time for comparing
+#[inline]
+pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
+    let uptime = System::uptime();
+
+    // as uptime's accuracy is 1s, use busy loop to get the next right second,
+    // and then the clock time
+    loop {
+        if System::uptime() - uptime >= 1.0 as u64 {
+            return (uptime + 1.0 as u64, Utc::now().timestamp_micros());
+        }
+    }
+}
+
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let mut iseq_logger = IseqLogger::new();
+    let (uptime, clock_time) = uptime_and_clock_time();
+    log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
 
     let data: &mut PullData = ptr_to_struct(data);
 
@@ -176,7 +193,7 @@ pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
     Qtrue as VALUE
 }
 
-// used for testing
+// for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,
     thread_val: VALUE,
