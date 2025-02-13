@@ -62,7 +62,8 @@ class Event(ctypes.Structure):
         data = {
             # "pid": self.pid,
             # "tid": self.tid,
-            "ts": self.ts,
+            "ts": int(self.ts / 1000), # eBPF bpf_ktime_get_ns' unite is nanosecond, we need microsecond only
+            "ts_ns": self.ts, # record raw date for debug in case
             "first_lineno": self.first_lineno,
             "name": self.name.decode('utf-8', errors='replace').rstrip('\x00') if self.name else "",
             "path": self.path.decode('utf-8', errors='replace').rstrip('\x00') if self.path else "",

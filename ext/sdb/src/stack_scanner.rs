@@ -91,16 +91,17 @@ extern "C" fn ubf_do_pull(data: *mut c_void) {
     data.stop = true;
 }
 
-// eBPF only has uptime, this function returns both uptime and clock time for comparing
+// eBPF only has uptime, this function returns both uptime and clock time for converting
 #[inline]
 pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     let uptime = System::uptime();
 
     // as uptime's accuracy is 1s, use busy loop to get the next right second,
-    // and then the clock time
+    // and then the clock time for converting between uptime and clock time
     loop {
         if System::uptime() - uptime >= 1.0 as u64 {
-            return (uptime + 1.0 as u64, Utc::now().timestamp_micros());
+            // covert to micros for uptime
+            return ((uptime + 1.0 as u64) * 1_000_000, Utc::now().timestamp_micros());
         }
     }
 }
