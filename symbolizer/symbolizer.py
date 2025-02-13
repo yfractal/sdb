@@ -12,7 +12,8 @@ with open(current_directory + "/symbolizer.c", "r") as file:
     bpf_text = file.read()
 
 b = BPF(text=bpf_text)
-binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
+# binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
+binary_path = "/root/.rbenv/versions/3.1.5/lib/libruby.so.3.1.5"
 
 # rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
 # rb_iseq_t *rb_iseq_new_top     (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent);
@@ -41,6 +42,9 @@ b.attach_uretprobe(name=binary_path, sym="rb_method_entry_make", fn_name="rb_met
 b.attach_uprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_instrument")
 b.attach_uretprobe(name=binary_path, sym="rb_define_module", fn_name="rb_define_module_return_instrument")
 
+# GC compact
+b.attach_uprobe(name=binary_path, sym="gc_move.isra.0", fn_name="gc_move_instrument")
+
 class Event(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint32),
@@ -50,6 +54,7 @@ class Event(ctypes.Structure):
         ("name", ctypes.c_char * MAX_STR_LENGTH),
         ("path", ctypes.c_char * MAX_STR_LENGTH),
         ("iseq_addr", ctypes.c_uint64),
+        ("to_addr", ctypes.c_uint64),
         ("type", ctypes.c_uint32),
     ]
 
@@ -57,11 +62,13 @@ class Event(ctypes.Structure):
         data = {
             # "pid": self.pid,
             # "tid": self.tid,
-            # "ts": self.ts,
+            "ts": int(self.ts / 1000), # eBPF bpf_ktime_get_ns' unite is nanosecond, we need microsecond only
+            "ts_ns": self.ts, # record raw date for debug in case
             "first_lineno": self.first_lineno,
-            "name": self.name.decode('utf-8').rstrip('\x00'),
-            "path": self.path.decode('utf-8').rstrip('\x00'),
+            "name": self.name.decode('utf-8', errors='replace').rstrip('\x00') if self.name else "",
+            "path": self.path.decode('utf-8', errors='replace').rstrip('\x00') if self.path else "",
             "iseq_addr": self.iseq_addr,
+            "to_addr": self.to_addr,
             "type": self.type,
         }
 
