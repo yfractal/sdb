@@ -1,0 +1,16 @@
+FROM yfractal0/sdb
+
+COPY ./ /sdb
+
+RUN --mount=type=ssh /bin/bash -c "cd /sdb && source /etc/profile.d/rbenv.sh && bundle install"
+RUN --mount=type=ssh /bin/bash -c "cd /sdb && source /etc/profile.d/rbenv.sh && bundle exec rake compile"
+
+RUN apt-get install -y unzip
+RUN wget https://github.com/yfractal/rails_api/archive/refs/heads/main.zip
+RUN unzip main.zip
+
+WORKDIR /rails_api-main
+RUN --mount=type=ssh /bin/bash -c "source /etc/profile.d/rbenv.sh && bundle install"
+RUN --mount=type=ssh /bin/bash -c "source /etc/profile.d/rbenv.sh && rake db:setup"
+
+CMD ["bash", "-c", "source /etc/profile.d/rbenv.sh && ruby /sdb/scripts/rails_demo.rb"]
