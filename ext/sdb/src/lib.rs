@@ -20,17 +20,23 @@ use logger::*;
 use std::os::raw::c_void;
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    THREADS_TO_SCAN_LOCK.lock();
+    print!("gc enter\n");
+    let lock = THREADS_TO_SCAN_LOCK.lock();
     disable_scanner();
+    println!("gc enter disable scanner");
+    drop(lock);
+    println!("gc enter finished");
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
+    print!("gc exist\n");
     let sdb_module: u64 = rb_define_module("Sdb\0".as_ptr() as *const c_char);
     // no need call enable_scanner, because the scanner will be enabled in the next loop of the puller thread
     call_method(sdb_module, "start_to_pull", 0, &[]);
 }
 
 pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
+    println!("setup_gc_hook");
     unsafe {
         let tp = rb_tracepoint_new(
             0,

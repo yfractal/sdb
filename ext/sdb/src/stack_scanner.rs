@@ -102,6 +102,7 @@ unsafe extern "C" fn record_thread_frames(
 }
 
 extern "C" fn ubf_do_pull(_: *mut c_void) {
+    // print!("ubf_do_pull\n");
     disable_scanner();
 }
 
@@ -130,6 +131,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     let data: &mut PullData = ptr_to_struct(data);
 
+    println!("do_pull");
     let lock = THREADS_TO_SCAN_LOCK.lock();
     let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
     drop(lock);
@@ -143,10 +145,12 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
         let mut i: isize = 0;
         while i < threads_count {
+            println!("do_pull loop thread");
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let lock = THREADS_TO_SCAN_LOCK.lock();
             if should_stop_scanner() {
                 iseq_logger.flush();
+                drop(lock);
                 return ptr::null_mut();
             }
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
@@ -194,6 +198,7 @@ pub(crate) unsafe extern "C" fn rb_delete_inactive_thread(
     threads_to_scan: VALUE,
     thread: VALUE,
 ) -> VALUE {
+    println!("rb_delete_inactive_thread");
     let lock = THREADS_TO_SCAN_LOCK.lock();
     call_method(threads_to_scan, "delete", 1, &[thread]);
     drop(lock);
@@ -206,6 +211,7 @@ pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
     threads_to_scan: VALUE,
     thread: VALUE,
 ) -> VALUE {
+    println!("rb_add_thread_to_scan");
     let lock = THREADS_TO_SCAN_LOCK.lock();
     // THREADS_TO_SCAN_LOCK guarantees mutually exclusive access, which blocks the scanner thread.
     // As the trace-id table doesn't have a lock, inserting a dummy value to avoid hash reallocation.
