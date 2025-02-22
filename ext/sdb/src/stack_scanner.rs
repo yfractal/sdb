@@ -193,35 +193,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
     Qtrue as VALUE
 }
 
-pub(crate) unsafe extern "C" fn rb_delete_inactive_thread(
-    _module: VALUE,
-    threads_to_scan: VALUE,
-    thread: VALUE,
-) -> VALUE {
-    println!("rb_delete_inactive_thread");
-    let lock = THREADS_TO_SCAN_LOCK.lock();
-    call_method(threads_to_scan, "delete", 1, &[thread]);
-    drop(lock);
-
-    Qtrue as VALUE
-}
-
-pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
-    _module: VALUE,
-    threads_to_scan: VALUE,
-    thread: VALUE,
-) -> VALUE {
-    println!("rb_add_thread_to_scan");
-    let lock = THREADS_TO_SCAN_LOCK.lock();
-    // THREADS_TO_SCAN_LOCK guarantees mutually exclusive access, which blocks the scanner thread.
-    // As the trace-id table doesn't have a lock, inserting a dummy value to avoid hash reallocation.
-    set_trace_id(thread, 0);
-    call_method(threads_to_scan, "push", 1, &[thread]);
-    drop(lock);
-
-    Qtrue as VALUE
-}
-
 // for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,

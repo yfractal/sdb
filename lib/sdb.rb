@@ -46,7 +46,9 @@ module Sdb
         loop {
           @puller_mutex.lock
           until @start_to_pull
+            puts "before wait"
             @puller_cond.wait(@puller_mutex)
+             puts "after wait"
           end
 
           if @puller_mutex.try_lock
@@ -58,6 +60,7 @@ module Sdb
 
           puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
           self.pull(@threads_to_scan, @sleep_interval)
+          puts "one pull done!!!"
           self.enable_scanner
         }
       end
