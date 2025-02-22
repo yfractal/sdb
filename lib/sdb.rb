@@ -34,7 +34,6 @@ module Sdb
       @initialized = true
       @threads_to_scan = threads
       @active_threads = []
-      @active_threads_lock = Mutex.new
 
       @puller_mutex = Mutex.new
       @puller_cond = ConditionVariable.new
@@ -43,6 +42,7 @@ module Sdb
       puts "@threads_to_scan=#{@threads_to_scan}"
 
       @puller_thread = Thread.new do
+        puts "puller_thread started"
         loop {
           @puller_mutex.lock
           until @start_to_pull
@@ -66,25 +66,6 @@ module Sdb
       end
     end
 
-    def thread_created(thread)
-      init_once
-
-      @active_threads_lock.lock
-      @active_threads << thread
-      @active_threads_lock.unlock
-
-      if @filter && @filter.call(thread)
-        add_thread_to_scan(@threads_to_scan, thread)
-      end
-    end
-
-    def thread_deleted(thread)
-      @active_threads_lock.lock
-      @active_threads.delete(thread)
-      @active_threads_lock.unlock
-
-      delete_inactive_thread(@threads_to_scan, thread)
-    end
 
     def current_thread
       @current_thread ||= Thread.current
@@ -100,14 +81,6 @@ module Sdb
 
     def scan_threads_helper(sleep_interval, &filter)
       @filter = filter
-      @active_threads_lock.lock
-      @active_threads.each do |thread|
-        puts "thread=#{thread}"
-        if @filter.call(thread)
-          add_thread_to_scan(@threads_to_scan, thread)
-        end
-      end
-      @active_threads_lock.unlock
       @sleep_interval = sleep_interval
 
       # puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"

@@ -13,9 +13,9 @@ use rb_sys::{
 
 use gvl::*;
 use helpers::*;
+use logger::*;
 use stack_scanner::*;
 use trace_id::*;
-use logger::*;
 
 use std::os::raw::c_void;
 
