@@ -26,6 +26,7 @@ module Sdb
   class << self
     def init_once
       return true if @initialized
+      raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
 
       self.init_logger
       self.setup_gc_hook
