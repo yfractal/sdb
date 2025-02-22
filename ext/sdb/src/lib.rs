@@ -19,13 +19,22 @@ use trace_id::*;
 
 use std::os::raw::c_void;
 
+use std::thread;
+
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    print!("gc enter\n");
-    let lock = THREADS_TO_SCAN_LOCK.lock();
-    disable_scanner();
-    println!("gc enter disable scanner");
-    drop(lock);
-    println!("gc enter finished");
+    // Print the current thread ID
+    let thread_id = thread::current().id();
+    println!("gc enter - current thread ID: {:?}", thread_id);
+
+    // Try to acquire the lock
+    if let Some(lock) = THREADS_TO_SCAN_LOCK.try_lock() {
+        println!("Lock acquired");
+        disable_scanner();
+        drop(lock); // Explicitly drop the lock
+    } else {
+        println!("Failed to acquire lock !!!!!!");
+        disable_scanner(); // Still disable scanner even if lock acquisition fails
+    }
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
@@ -36,7 +45,6 @@ unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) 
 }
 
 pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
-    println!("setup_gc_hook");
     unsafe {
         let tp = rb_tracepoint_new(
             0,

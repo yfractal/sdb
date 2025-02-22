@@ -169,7 +169,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         }
 
         let lock = THREADS_TO_SCAN_LOCK.lock();
-        println!("do_pull THREADS_TO_SCAN_LOCK acquired");
 
         let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
         let mut i: isize = 0;
@@ -202,6 +201,9 @@ pub(crate) unsafe extern "C" fn rb_pull(
     threads_to_scan: VALUE,
     sleep_seconds: VALUE,
 ) -> VALUE {
+    let thread_id = thread::current().id();
+    println!("rb_pull - current thread ID: {:?}", thread_id);
+
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
 
