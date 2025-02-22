@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{ptr, thread};
 
 use lazy_static::lazy_static;
-use spin::Mutex;
+use spin::{Mutex, MutexGuard};
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -26,6 +26,33 @@ lazy_static! {
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
     static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
+    static ref THREADS_TO_SCAN_LOCK_HOLDER: Mutex<LockHolder> = Mutex::new(LockHolder::new());
+}
+
+pub(crate) fn acquire_threads_to_scan_lock() {
+    THREADS_TO_SCAN_LOCK_HOLDER.lock().acquire();
+}
+
+pub(crate) fn release_threads_to_scan_lock() {
+    THREADS_TO_SCAN_LOCK_HOLDER.lock().release();
+}
+
+struct LockHolder {
+    guard: Option<MutexGuard<'static, i32>>,
+}
+
+impl LockHolder {
+    fn new() -> Self {
+        LockHolder { guard: None }
+    }
+
+    fn acquire(&mut self) {
+        self.guard = Some(THREADS_TO_SCAN_LOCK.lock());
+    }
+
+    fn release(&mut self) {
+        self.guard.take(); // When the Option becomes None, the guard is dropped.
+    }
 }
 
 struct PullData {

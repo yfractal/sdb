@@ -19,7 +19,11 @@ use trace_id::*;
 use std::os::raw::c_void;
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    println!("Garbage collection has started.");
+    acquire_threads_to_scan_lock();
+}
+
+extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
+    release_threads_to_scan_lock();
 }
 
 pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
@@ -31,6 +35,14 @@ pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
             std::ptr::null_mut(),
         );
         rb_tracepoint_enable(tp);
+
+        let tp_exist = rb_tracepoint_new(
+            0,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_EXIT,
+            Some(gc_exist_callback),
+            std::ptr::null_mut(),
+        );
+        rb_tracepoint_enable(tp_exist);
     }
 
     return Qnil as VALUE;
