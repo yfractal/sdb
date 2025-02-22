@@ -28,10 +28,31 @@ module Sdb
       return true if @initialized
 
       @initialized = true
-      @scanning = false
       @threads_to_scan = []
       @active_threads = []
       @active_threads_lock = Mutex.new
+
+      @puller_mutex = Mutex.new
+      @puller_cond = ConditionVariable.new
+      @start_to_pull = false
+
+      @puller_thread = Thread.new do
+        loop {
+          @puller_mutex.lock
+          until @start_to_pull
+            @puller_cond.wait(@puller_mutex)
+          end
+
+          if @puller_mutex.try_lock
+            puts "Lock is not held !!!!!!!!!!"
+          end
+
+          @start_to_pull = false
+          @puller_mutex.unlock
+
+          self.pull(@threads_to_scan, @sleep_interval)
+        }
+      end
     end
 
     def thread_created(thread)
@@ -41,8 +62,8 @@ module Sdb
       @active_threads << thread
       @active_threads_lock.unlock
 
-      if @scanning && @filter.call(thread)
-          add_thread_to_scan(@threads_to_scan, thread)
+      if @filter.call(thread)
+        add_thread_to_scan(@threads_to_scan, thread)
       end
     end
 
@@ -75,9 +96,16 @@ module Sdb
         end
       end
       @active_threads_lock.unlock
+      @sleep_interval = sleep_interval
 
-      @scanning = true
-      self.pull(@threads_to_scan, sleep_interval)
+      start_to_pull
+    end
+
+    def start_to_pull
+      @puller_mutex.synchronize do
+        @start_to_pull = true
+        @puller_cond.signal
+      end
     end
 
     def scan_puma_threads(sleep_interval = 0.001)
