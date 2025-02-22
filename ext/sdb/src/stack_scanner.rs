@@ -101,7 +101,10 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     loop {
         if System::uptime() - uptime >= 1.0 as u64 {
             // covert to micros for uptime
-            return ((uptime + 1.0 as u64) * 1_000_000, Utc::now().timestamp_micros());
+            return (
+                (uptime + 1.0 as u64) * 1_000_000,
+                Utc::now().timestamp_micros(),
+            );
         }
     }
 }

@@ -6,12 +6,35 @@ mod stack_scanner;
 mod trace_id;
 
 use libc::c_char;
-use rb_sys::{rb_define_module, rb_define_singleton_method, VALUE};
+use rb_sys::{
+    rb_define_module, rb_define_singleton_method, rb_tracepoint_enable, rb_tracepoint_new, Qnil,
+    VALUE,
+};
 
 use gvl::*;
 use helpers::*;
 use stack_scanner::*;
 use trace_id::*;
+
+use std::os::raw::c_void;
+
+extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
+    println!("Garbage collection has started.");
+}
+
+pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
+    unsafe {
+        let tp = rb_tracepoint_new(
+            0,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_ENTER,
+            Some(gc_enter_callback),
+            std::ptr::null_mut(),
+        );
+        rb_tracepoint_enable(tp);
+    }
+
+    return Qnil as VALUE;
+}
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -111,6 +134,17 @@ extern "C" fn Init_sdb() {
             "base_label_from_iseq_addr\0".as_ptr() as _,
             Some(rb_base_label_from_iseq_addr_callback),
             1,
+        );
+
+        let setup_gc_hook_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(setup_gc_hook);
+        rb_define_singleton_method(
+            module,
+            "setup_gc_hook\0".as_ptr() as _,
+            Some(setup_gc_hook_callback),
+            0,
         );
     }
 }
