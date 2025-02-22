@@ -18,6 +18,7 @@ use std::{ptr, thread};
 
 use lazy_static::lazy_static;
 use spin::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -27,6 +28,7 @@ lazy_static! {
     // So, I think it is good choice to use spinlock here
     static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
     static ref THREADS_TO_SCAN_LOCK_HOLDER: Mutex<LockHolder> = Mutex::new(LockHolder::new());
+    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false); // THREADS_TO_SCAN_LOCK protects this, no need atomic actually
 }
 
 pub(crate) fn acquire_threads_to_scan_lock() {
@@ -55,10 +57,24 @@ impl LockHolder {
     }
 }
 
+#[inline]
+pub(crate) fn disable_scanner() {
+    STOP_SCANNER.store(true, Ordering::SeqCst);
+}
+
+#[inline]
+pub(crate) fn enable_scanner() {
+    STOP_SCANNER.store(false, Ordering::SeqCst);
+}
+
+#[inline]
+fn should_stop_scanner() -> bool {
+    STOP_SCANNER.load(Ordering::SeqCst)
+}
+
 struct PullData {
     current_thread: VALUE,
     threads_to_scan: VALUE,
-    stop: bool,
     sleep_millis: u32,
 }
 
@@ -112,10 +128,8 @@ unsafe extern "C" fn record_thread_frames(
     iseq_logger.push_seperator();
 }
 
-extern "C" fn ubf_do_pull(data: *mut c_void) {
-    let data: &mut PullData = ptr_to_struct(data);
-
-    data.stop = true;
+extern "C" fn ubf_do_pull(_: *mut c_void) {
+    disable_scanner();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
@@ -148,7 +162,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let trace_table = get_trace_id_table();
 
     loop {
-        if data.stop {
+        if should_stop_scanner() {
             iseq_logger.flush();
             return ptr::null_mut();
         }
@@ -182,7 +196,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
     let mut data = PullData {
         current_thread: current_thread,
         threads_to_scan,
-        stop: false,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
 

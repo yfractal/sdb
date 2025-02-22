@@ -50,6 +50,7 @@ module Sdb
           @start_to_pull = false
           @puller_mutex.unlock
 
+          self.enable_scanner
           self.pull(@threads_to_scan, @sleep_interval)
         }
       end

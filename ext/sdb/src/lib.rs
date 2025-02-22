@@ -19,11 +19,15 @@ use trace_id::*;
 use std::os::raw::c_void;
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    acquire_threads_to_scan_lock();
+    acquire_threads_to_scan_lock(); // block scanner
+    disable_scanner();
 }
 
-extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
-    release_threads_to_scan_lock();
+unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
+    release_threads_to_scan_lock(); // the scanner has been disabled in gc_enter_callback
+    let sdb_module: u64 = rb_define_module("Sdb\0".as_ptr() as *const c_char);
+    // no need call enable_scanner, because the scanner will be enabled in the next loop of the puller thread
+    call_method(sdb_module, "start_to_pull", 0, &[]);
 }
 
 pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
@@ -45,6 +49,11 @@ pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
         rb_tracepoint_enable(tp_exist);
     }
 
+    return Qnil as VALUE;
+}
+
+pub(crate) unsafe extern "C" fn rb_enable_scanner(_module: VALUE) -> VALUE {
+    enable_scanner();
     return Qnil as VALUE;
 }
 
@@ -156,6 +165,17 @@ extern "C" fn Init_sdb() {
             module,
             "setup_gc_hook\0".as_ptr() as _,
             Some(setup_gc_hook_callback),
+            0,
+        );
+
+        let enable_scanner_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_enable_scanner);
+        rb_define_singleton_method(
+            module,
+            "enable_scanner\0".as_ptr() as _,
+            Some(enable_scanner_callback),
             0,
         );
     }
