@@ -27,6 +27,8 @@ module Sdb
     def init_once
       return true if @initialized
 
+      self.init_logger
+      self.setup_gc_hook
       @initialized = true
       @threads_to_scan = []
       @active_threads = []
@@ -35,6 +37,7 @@ module Sdb
       @puller_mutex = Mutex.new
       @puller_cond = ConditionVariable.new
       @start_to_pull = false
+
 
       @puller_thread = Thread.new do
         loop {
@@ -50,8 +53,9 @@ module Sdb
           @start_to_pull = false
           @puller_mutex.unlock
 
-          self.enable_scanner
+          puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
           self.pull(@threads_to_scan, @sleep_interval)
+          self.enable_scanner
         }
       end
     end
@@ -63,7 +67,7 @@ module Sdb
       @active_threads << thread
       @active_threads_lock.unlock
 
-      if @filter.call(thread)
+      if @filter && @filter.call(thread)
         add_thread_to_scan(@threads_to_scan, thread)
       end
     end
@@ -92,12 +96,15 @@ module Sdb
       @filter = filter
       @active_threads_lock.lock
       @active_threads.each do |thread|
+        puts "thread=#{thread}"
         if @filter.call(thread)
           add_thread_to_scan(@threads_to_scan, thread)
         end
       end
       @active_threads_lock.unlock
       @sleep_interval = sleep_interval
+
+      # puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
 
       start_to_pull
     end

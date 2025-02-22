@@ -15,16 +15,16 @@ use gvl::*;
 use helpers::*;
 use stack_scanner::*;
 use trace_id::*;
+use logger::*;
 
 use std::os::raw::c_void;
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    acquire_threads_to_scan_lock(); // block scanner
+    THREADS_TO_SCAN_LOCK.lock();
     disable_scanner();
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
-    release_threads_to_scan_lock(); // the scanner has been disabled in gc_enter_callback
     let sdb_module: u64 = rb_define_module("Sdb\0".as_ptr() as *const c_char);
     // no need call enable_scanner, because the scanner will be enabled in the next loop of the puller thread
     call_method(sdb_module, "start_to_pull", 0, &[]);
@@ -34,7 +34,7 @@ pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
     unsafe {
         let tp = rb_tracepoint_new(
             0,
-            rb_sys::RUBY_INTERNAL_EVENT_GC_ENTER,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_START,
             Some(gc_enter_callback),
             std::ptr::null_mut(),
         );
@@ -42,13 +42,18 @@ pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
 
         let tp_exist = rb_tracepoint_new(
             0,
-            rb_sys::RUBY_INTERNAL_EVENT_GC_EXIT,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_END_SWEEP,
             Some(gc_exist_callback),
             std::ptr::null_mut(),
         );
         rb_tracepoint_enable(tp_exist);
     }
 
+    return Qnil as VALUE;
+}
+
+pub(crate) unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
+    init_logger();
     return Qnil as VALUE;
 }
 
@@ -165,6 +170,17 @@ extern "C" fn Init_sdb() {
             module,
             "setup_gc_hook\0".as_ptr() as _,
             Some(setup_gc_hook_callback),
+            0,
+        );
+
+        let rb_init_logger_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_init_logger);
+        rb_define_singleton_method(
+            module,
+            "init_logger\0".as_ptr() as _,
+            Some(rb_init_logger_callback),
             0,
         );
 

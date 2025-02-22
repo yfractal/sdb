@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{ptr, thread};
 
 use lazy_static::lazy_static;
-use spin::{Mutex, MutexGuard};
+use spin::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 lazy_static! {
@@ -26,35 +26,8 @@ lazy_static! {
     // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
-    static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
-    static ref THREADS_TO_SCAN_LOCK_HOLDER: Mutex<LockHolder> = Mutex::new(LockHolder::new());
+    pub static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
     static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false); // THREADS_TO_SCAN_LOCK protects this, no need atomic actually
-}
-
-pub(crate) fn acquire_threads_to_scan_lock() {
-    THREADS_TO_SCAN_LOCK_HOLDER.lock().acquire();
-}
-
-pub(crate) fn release_threads_to_scan_lock() {
-    THREADS_TO_SCAN_LOCK_HOLDER.lock().release();
-}
-
-struct LockHolder {
-    guard: Option<MutexGuard<'static, i32>>,
-}
-
-impl LockHolder {
-    fn new() -> Self {
-        LockHolder { guard: None }
-    }
-
-    fn acquire(&mut self) {
-        self.guard = Some(THREADS_TO_SCAN_LOCK.lock());
-    }
-
-    fn release(&mut self) {
-        self.guard.take(); // When the Option becomes None, the guard is dropped.
-    }
 }
 
 #[inline]
@@ -157,10 +130,11 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
 
     let data: &mut PullData = ptr_to_struct(data);
 
+    let lock = THREADS_TO_SCAN_LOCK.lock();
     let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
+    drop(lock);
 
     let trace_table = get_trace_id_table();
-
     loop {
         if should_stop_scanner() {
             iseq_logger.flush();
@@ -171,7 +145,12 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         while i < threads_count {
             // TODO: covert ruby array to rust array before loop, it could increase performance slightly
             let lock = THREADS_TO_SCAN_LOCK.lock();
+            if should_stop_scanner() {
+                iseq_logger.flush();
+                return ptr::null_mut();
+            }
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
+
             if thread != data.current_thread && thread != Qnil.into() {
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
