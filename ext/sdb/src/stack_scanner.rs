@@ -60,10 +60,6 @@ unsafe fn is_valid_thread(thread_val: VALUE) -> bool {
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
 unsafe fn get_control_frame_slice(thread_val: VALUE) -> Option<&'static [rb_control_frame_struct]> {
-    if !is_valid_thread(thread_val) {
-        return None;
-    }
-
     // todo: get the ec before the loop
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
     if thread_ptr.is_null() {
@@ -99,7 +95,10 @@ unsafe extern "C" fn record_thread_frames(
 ) -> bool {
     let frames = match get_control_frame_slice(thread_val) {
         Some(s) => s,
-        None => return false,
+        None => {
+            println!("no frames for thread: {:?}", thread_val);
+            return false;
+        },
     };
 
     let trace_id = get_trace_id(trace_table, thread_val);
@@ -128,6 +127,7 @@ unsafe extern "C" fn record_thread_frames(
     }
 
     iseq_logger.push_seperator();
+    iseq_logger.flush();
     true
 }
 
@@ -181,12 +181,14 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
                 return ptr::null_mut();
             }
 
+            let lock = THREADS_TO_SCAN_LOCK.lock();
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
-            if thread != data.current_thread && thread != Qnil.into() && is_valid_thread(thread) {
+            if thread != data.current_thread && thread != Qnil.into() {
                 println!("record thread frames: {:?}", thread);
                 // Record frames while holding the lock to ensure thread stays valid
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
+            drop(lock);
             i += 1;
         }
 

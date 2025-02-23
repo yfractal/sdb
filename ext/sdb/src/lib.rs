@@ -53,6 +53,7 @@ unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) 
     let nanos = now.as_nanos();
     println!("[gc-hook][gc exist] - current thread ID: {:?}, time: {} ns", thread_id, nanos);
 
+    enable_scanner();
     call_method(*SDB_MODULE as VALUE, "start_to_pull", 0, &[]);
 }
 

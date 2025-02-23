@@ -42,13 +42,13 @@ module Sdb
       puts "@threads_to_scan=#{@threads_to_scan}"
 
       @puller_thread = Thread.new do
-        puts "puller_thread started"
+        puts "[puller-thread] started"
         loop {
           @puller_mutex.lock
           until @start_to_pull
             puts "before wait"
             @puller_cond.wait(@puller_mutex)
-             puts "after wait"
+            puts "after wait"
           end
 
           if @puller_mutex.try_lock
@@ -58,10 +58,9 @@ module Sdb
           @start_to_pull = false
           @puller_mutex.unlock
 
-          puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
+          puts "[puller-thread] SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
           self.pull(@threads_to_scan, @sleep_interval)
-          puts "one pull done!!!"
-          self.enable_scanner
+          puts "[puller-thread] one pull done!!!"
         }
       end
     end
@@ -84,12 +83,16 @@ module Sdb
       @sleep_interval = sleep_interval
 
       # puts "SDB will scan @threads_to_scan=#{@threads_to_scan} with sleep_interval=#{@sleep_interval}"
+      @puller_mutex.synchronize do
+        @start_to_pull = true
+        @puller_cond.signal
+      end
 
       start_to_pull
     end
 
     def start_to_pull
-      puts "start_to_pull ........."
+      # puts "start_to_pull ........."
       @puller_mutex.synchronize do
         @start_to_pull = true
         @puller_cond.signal
