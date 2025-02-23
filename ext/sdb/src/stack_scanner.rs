@@ -53,33 +53,19 @@ struct PullData {
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-unsafe fn get_control_frame_slice(thread_val: VALUE) -> Option<&'static [rb_control_frame_struct]> {
-    // todo: get the ec before the loop
+unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_frame_struct] {
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
-    if thread_ptr.is_null() {
-        return None;
-    }
 
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
-    if thread_struct_ptr.is_null() {
-        return None;
-    }
 
     let thread = *thread_struct_ptr;
-    if thread.ec.is_null() {
-        return None;
-    }
-
     let ec = *thread.ec;
-    if ec.cfp.is_null() || ec.vm_stack.is_null() {
-        return None;
-    }
 
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
-    Some(slice::from_raw_parts(ec.cfp, len))
+    slice::from_raw_parts(ec.cfp, len)
 }
 
 unsafe extern "C" fn record_thread_frames(
@@ -87,13 +73,7 @@ unsafe extern "C" fn record_thread_frames(
     trace_table: &HashMap<u64, AtomicU64>,
     iseq_logger: &mut IseqLogger,
 ) -> bool {
-    let frames = match get_control_frame_slice(thread_val) {
-        Some(s) => s,
-        None => {
-            println!("no frames for thread: {:?}", thread_val);
-            return false;
-        }
-    };
+    let frames = get_control_frame_slice(thread_val);
 
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
@@ -156,17 +136,17 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let data: &mut PullData = ptr_to_struct(data);
     let trace_table = get_trace_id_table();
 
+    let lock = THREADS_TO_SCAN_LOCK.lock();
+    let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
+    let mut i: isize = 0;
+    drop(lock);
+
+    if should_stop_scanner() {
+        iseq_logger.flush();
+        return ptr::null_mut();
+    }
+
     loop {
-        if should_stop_scanner() {
-            iseq_logger.flush();
-            return ptr::null_mut();
-        }
-
-        let lock = THREADS_TO_SCAN_LOCK.lock();
-        let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
-        let mut i: isize = 0;
-        drop(lock);
-
         while i < threads_count {
             if should_stop_scanner() {
                 iseq_logger.flush();
@@ -219,10 +199,7 @@ pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,
     thread_val: VALUE,
 ) -> VALUE {
-    let frames = match get_control_frame_slice(thread_val) {
-        Some(s) => s,
-        None => return Qnil.into(),
-    };
+    let frames = get_control_frame_slice(thread_val);
 
     let ary = rb_sys::rb_ary_new_capa(frames.len() as i64);
 
