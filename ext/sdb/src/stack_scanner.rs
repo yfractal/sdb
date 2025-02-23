@@ -155,6 +155,8 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
+    log::info!("[sdb] do_pull !!!!!!!!!!!!!");
+
     let mut iseq_logger = IseqLogger::new();
     let (uptime, clock_time) = uptime_and_clock_time();
     log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
@@ -169,31 +171,30 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         }
 
         let lock = THREADS_TO_SCAN_LOCK.lock();
-
         let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
         let mut i: isize = 0;
+        drop(lock);
 
         while i < threads_count {
             if should_stop_scanner() {
                 iseq_logger.flush();
-                drop(lock);
                 return ptr::null_mut();
             }
 
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
             if thread != data.current_thread && thread != Qnil.into() && is_valid_thread(thread) {
+                println!("record thread frames: {:?}", thread);
                 // Record frames while holding the lock to ensure thread stays valid
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
             i += 1;
         }
 
-        drop(lock);
-
         if data.sleep_millis != 0 {
-            thread::sleep(Duration::from_millis(data.sleep_millis as u64));
+            thread::sleep(Duration::from_millis(data.sleep_millis as u64));            
         }
     }
+    // ptr::null_mut()
 }
 
 pub(crate) unsafe extern "C" fn rb_pull(
@@ -202,7 +203,7 @@ pub(crate) unsafe extern "C" fn rb_pull(
     sleep_seconds: VALUE,
 ) -> VALUE {
     let thread_id = thread::current().id();
-    println!("rb_pull - current thread ID: {:?}", thread_id);
+    println!("[sdb] start to pull - current thread ID: {:?}", thread_id);
 
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
@@ -212,6 +213,8 @@ pub(crate) unsafe extern "C" fn rb_pull(
         threads_to_scan,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
+
+    println!("[sdb] call rb_thread_call_without_gvl");
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(
