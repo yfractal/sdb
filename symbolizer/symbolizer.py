@@ -62,7 +62,7 @@ class Event(ctypes.Structure):
         data = {
             # "pid": self.pid,
             # "tid": self.tid,
-            "ts": int(self.ts / 1000), # eBPF bpf_ktime_get_ns' unite is nanosecond, we need microsecond only
+             "ts": int(self.ts / 1000), # eBPF bpf_ktime_get_ns' unite is nanosecond, we need microsecond only
             "ts_ns": self.ts, # record raw date for debug in case
             "first_lineno": self.first_lineno,
             "name": self.name.decode('utf-8', errors='replace').rstrip('\x00') if self.name else "",
@@ -78,10 +78,12 @@ def print_event(cpu, data, size):
     event = ctypes.cast(data, ctypes.POINTER(Event)).contents
     print(json.dumps(event.to_dict()))
 
-b["events"].open_perf_buffer(print_event, 1024)
+# update perf buffer size is not big enough through
+# sudo sysctl -w kernel.perf_event_mlock_kb=32768
+b["events"].open_perf_buffer(print_event, page_cnt=8192)
 
 while True:
     try:
-        b.perf_buffer_poll()
+        b.perf_buffer_poll(timeout=10)
     except KeyboardInterrupt:
         exit()
