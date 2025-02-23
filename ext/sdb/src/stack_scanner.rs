@@ -98,7 +98,7 @@ unsafe extern "C" fn record_thread_frames(
         None => {
             println!("no frames for thread: {:?}", thread_val);
             return false;
-        },
+        }
     };
 
     let trace_id = get_trace_id(trace_table, thread_val);
@@ -193,7 +193,7 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
         }
 
         if data.sleep_millis != 0 {
-            thread::sleep(Duration::from_millis(data.sleep_millis as u64));            
+            thread::sleep(Duration::from_millis(data.sleep_millis as u64));
         }
     }
     // ptr::null_mut()
