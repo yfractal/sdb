@@ -8,7 +8,7 @@ use libc::c_void;
 use rb_sys::{
     rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_thread_t};
 use sysinfo::System;
 
 use std::collections::HashMap;
@@ -18,6 +18,7 @@ use std::{ptr, thread};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -25,70 +26,107 @@ lazy_static! {
     // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
-    static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
+    pub static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0);
+    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false); // THREADS_TO_SCAN_LOCK protects this, no need atomic actually
+}
+
+#[inline]
+pub(crate) fn disable_scanner() {
+    STOP_SCANNER.store(true, Ordering::SeqCst);
+}
+
+#[inline]
+pub(crate) fn enable_scanner() {
+    STOP_SCANNER.store(false, Ordering::SeqCst);
+}
+
+#[inline]
+fn should_stop_scanner() -> bool {
+    STOP_SCANNER.load(Ordering::SeqCst)
 }
 
 struct PullData {
     current_thread: VALUE,
     threads_to_scan: VALUE,
-    stop: bool,
     sleep_millis: u32,
 }
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_frame_struct] {
+unsafe fn get_control_frame_slice(thread_val: VALUE) -> Option<&'static [rb_control_frame_struct]> {
     // todo: get the ec before the loop
     let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
+    if thread_ptr.is_null() {
+        return None;
+    }
+
     let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
+    if thread_struct_ptr.is_null() {
+        return None;
+    }
+
     let thread = *thread_struct_ptr;
+    if thread.ec.is_null() {
+        return None;
+    }
+
     let ec = *thread.ec;
+    if ec.cfp.is_null() || ec.vm_stack.is_null() {
+        return None;
+    }
 
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
-    // todo: pass rb_control_frame_struct size in
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
-    slice::from_raw_parts(ec.cfp, len)
+    Some(slice::from_raw_parts(ec.cfp, len))
 }
 
-#[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
     iseq_logger: &mut IseqLogger,
-) {
-    let slice = get_control_frame_slice(thread_val);
+) -> bool {
+    let frames = match get_control_frame_slice(thread_val) {
+        Some(s) => s,
+        None => {
+            println!("no frames for thread: {:?}", thread_val);
+            return false;
+        }
+    };
 
     let trace_id = get_trace_id(trace_table, thread_val);
-
     let ts = Utc::now().timestamp_micros();
 
     iseq_logger.push(trace_id);
     iseq_logger.push(ts as u64);
 
-    for item in slice {
-        let iseq: &rb_iseq_struct = &*item.iseq;
+    for frame in frames {
+        // Access frame fields through pointer dereference since it's a C struct
+        let frame_ptr = frame as *const rb_control_frame_struct;
+        let iseq = unsafe { (*frame_ptr).iseq };
 
-        let iseq_addr = iseq as *const _ as u64;
-
-        // Iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
-        // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
-        if iseq_addr == 0 {
-            let cref_or_me = *item.sp.offset(-3);
-            iseq_logger.push(cref_or_me as u64);
-        } else {
-            iseq_logger.push(iseq_addr);
+        if iseq.is_null() {
+            // Handle C frames
+            let sp = unsafe { (*frame_ptr).sp };
+            if !sp.is_null() {
+                let cref_or_me = unsafe { *sp.offset(-3) };
+                iseq_logger.push(cref_or_me as u64);
+            }
+            continue;
         }
+
+        let iseq_struct = unsafe { &*iseq };
+        iseq_logger.push(iseq_struct as *const _ as u64);
     }
 
     iseq_logger.push_seperator();
+    iseq_logger.flush();
+    true
 }
 
-extern "C" fn ubf_do_pull(data: *mut c_void) {
-    let data: &mut PullData = ptr_to_struct(data);
-
-    data.stop = true;
+extern "C" fn ubf_do_pull(_: *mut c_void) {
+    disable_scanner();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
@@ -101,34 +139,44 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     loop {
         if System::uptime() - uptime >= 1.0 as u64 {
             // covert to micros for uptime
-            return ((uptime + 1.0 as u64) * 1_000_000, Utc::now().timestamp_micros());
+            return (
+                (uptime + 1.0 as u64) * 1_000_000,
+                Utc::now().timestamp_micros(),
+            );
         }
     }
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
+    enable_scanner();
     let mut iseq_logger = IseqLogger::new();
     let (uptime, clock_time) = uptime_and_clock_time();
     log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
 
     let data: &mut PullData = ptr_to_struct(data);
-
-    let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
-
     let trace_table = get_trace_id_table();
 
     loop {
-        if data.stop {
+        if should_stop_scanner() {
             iseq_logger.flush();
             return ptr::null_mut();
         }
 
+        let lock = THREADS_TO_SCAN_LOCK.lock();
+        let threads_count = RARRAY_LEN(data.threads_to_scan) as isize;
         let mut i: isize = 0;
+        drop(lock);
+
         while i < threads_count {
-            // TODO: covert ruby array to rust array before loop, it could increase performance slightly
+            if should_stop_scanner() {
+                iseq_logger.flush();
+                return ptr::null_mut();
+            }
+
             let lock = THREADS_TO_SCAN_LOCK.lock();
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
             if thread != data.current_thread && thread != Qnil.into() {
+                // Record frames while holding the lock to ensure thread stays valid
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
             drop(lock);
@@ -152,7 +200,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
     let mut data = PullData {
         current_thread: current_thread,
         threads_to_scan,
-        stop: false,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
 
@@ -167,53 +214,35 @@ pub(crate) unsafe extern "C" fn rb_pull(
     Qtrue as VALUE
 }
 
-pub(crate) unsafe extern "C" fn rb_delete_inactive_thread(
-    _module: VALUE,
-    threads_to_scan: VALUE,
-    thread: VALUE,
-) -> VALUE {
-    let lock = THREADS_TO_SCAN_LOCK.lock();
-    call_method(threads_to_scan, "delete", 1, &[thread]);
-    drop(lock);
-
-    Qtrue as VALUE
-}
-
-pub(crate) unsafe extern "C" fn rb_add_thread_to_scan(
-    _module: VALUE,
-    threads_to_scan: VALUE,
-    thread: VALUE,
-) -> VALUE {
-    let lock = THREADS_TO_SCAN_LOCK.lock();
-    // THREADS_TO_SCAN_LOCK guarantees mutually exclusive access, which blocks the scanner thread.
-    // As the trace-id table doesn't have a lock, inserting a dummy value to avoid hash reallocation.
-    set_trace_id(thread, 0);
-    call_method(threads_to_scan, "push", 1, &[thread]);
-    drop(lock);
-
-    Qtrue as VALUE
-}
-
 // for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,
     thread_val: VALUE,
 ) -> VALUE {
-    let slice = get_control_frame_slice(thread_val);
+    let frames = match get_control_frame_slice(thread_val) {
+        Some(s) => s,
+        None => return Qnil.into(),
+    };
 
-    let ary = rb_sys::rb_ary_new_capa(slice.len() as i64);
+    let ary = rb_sys::rb_ary_new_capa(frames.len() as i64);
 
-    for item in slice {
-        let iseq: &rb_iseq_struct = &*item.iseq;
+    for frame in frames {
+        // Access frame fields through pointer dereference since it's a C struct
+        let frame_ptr = frame as *const rb_control_frame_struct;
+        let iseq = unsafe { (*frame_ptr).iseq };
 
-        let iseq_addr = iseq as *const _ as u64;
-
-        if iseq_addr == 0 {
-            let cref_or_me = *item.sp.offset(-3);
-            rb_sys::rb_ary_push(ary, rb_int2inum(cref_or_me as isize));
-        } else {
-            rb_sys::rb_ary_push(ary, rb_int2inum(iseq_addr as isize));
+        if iseq.is_null() {
+            // Handle C frames
+            let sp = unsafe { (*frame_ptr).sp };
+            if !sp.is_null() {
+                let cref_or_me = unsafe { *sp.offset(-3) };
+                rb_sys::rb_ary_push(ary, rb_int2inum(cref_or_me as isize));
+            }
+            continue;
         }
+
+        let iseq_struct = unsafe { &*iseq };
+        rb_sys::rb_ary_push(ary, rb_int2inum(iseq_struct as *const _ as isize));
     }
 
     ary

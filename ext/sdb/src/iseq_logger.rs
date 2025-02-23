@@ -1,26 +1,17 @@
-use crate::logger::*;
-
-use fast_log::Logger;
-use log::Log;
-
 const ISEQS_BUFFER_SIZE: usize = 100_000;
 
-pub struct IseqLogger<'a> {
+pub struct IseqLogger {
     buffer: [u64; ISEQS_BUFFER_SIZE],
     buffer_size: usize,
     buffer_index: usize,
-    logger: &'a Logger,
 }
 
-impl<'a> IseqLogger<'a> {
+impl IseqLogger {
     pub fn new() -> Self {
-        let logger = init_logger();
-
         IseqLogger {
             buffer: [0; ISEQS_BUFFER_SIZE],
             buffer_size: ISEQS_BUFFER_SIZE,
             buffer_index: 0,
-            logger: logger,
         }
     }
 
@@ -44,7 +35,6 @@ impl<'a> IseqLogger<'a> {
     pub fn flush(&mut self) {
         log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
-
-        self.logger.flush();
+        log::logger().flush();
     }
 }

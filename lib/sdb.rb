@@ -21,38 +21,45 @@ module Sdb
     end
   end
 
-  Thread.prepend(ThreadInitializePatch)
+  # Thread.prepend(ThreadInitializePatch)
 
   class << self
-    def init_once
+    def init_once(threads = [])
+      puts "init_once threads=#{threads}"
       return true if @initialized
+      raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
 
+      self.init_logger
+      self.setup_gc_hook
       @initialized = true
-      @scanning = false
-      @threads_to_scan = []
+      @threads_to_scan = threads
       @active_threads = []
-      @active_threads_lock = Mutex.new
-    end
 
-    def thread_created(thread)
-      init_once
+      @puller_mutex = Mutex.new
+      @puller_cond = ConditionVariable.new
+      @start_to_pull = false
 
-      @active_threads_lock.lock
-      @active_threads << thread
-      @active_threads_lock.unlock
+      puts "@threads_to_scan=#{@threads_to_scan}"
 
-      if @scanning && @filter.call(thread)
-          add_thread_to_scan(@threads_to_scan, thread)
+      @puller_thread = Thread.new do
+        loop {
+          @puller_mutex.lock
+          until @start_to_pull
+            @puller_cond.wait(@puller_mutex)
+          end
+
+          if @puller_mutex.try_lock
+            puts "Lock is not held !!!!!!!!!!"
+          end
+
+          @start_to_pull = false
+          @puller_mutex.unlock
+
+          self.pull(@threads_to_scan, @sleep_interval)
+        }
       end
     end
 
-    def thread_deleted(thread)
-      @active_threads_lock.lock
-      @active_threads.delete(thread)
-      @active_threads_lock.unlock
-
-      delete_inactive_thread(@threads_to_scan, thread)
-    end
 
     def current_thread
       @current_thread ||= Thread.current
@@ -66,24 +73,29 @@ module Sdb
       self.pull(threads, 0)
     end
 
-    def scan_threads(sleep_interval, &filter)
+    def scan_threads_helper(sleep_interval, &filter)
       @filter = filter
-      @active_threads_lock.lock
-      @active_threads.each do |thread|
-        if @filter.call(thread)
-          add_thread_to_scan(@threads_to_scan, thread)
-        end
-      end
-      @active_threads_lock.unlock
+      @sleep_interval = sleep_interval
 
-      @scanning = true
-      self.pull(@threads_to_scan, sleep_interval)
+      @puller_mutex.synchronize do
+        @start_to_pull = true
+        @puller_cond.signal
+      end
+
+      start_to_pull
+    end
+
+    def start_to_pull
+      @puller_mutex.synchronize do
+        @start_to_pull = true
+        @puller_cond.signal
+      end
     end
 
     def scan_puma_threads(sleep_interval = 0.001)
       init_once
 
-      scan_threads(sleep_interval) do |thread|
+      scan_threads_helper(sleep_interval) do |thread|
         thread.name&.include?('puma srv tp')
       end
     end
@@ -91,7 +103,13 @@ module Sdb
     def scan_all_threads(sleep_interval = 0.001)
       init_once
 
-      scan_threads(sleep_interval) { true }
+      scan_threads_helper(sleep_interval) { true }
+    end
+
+    def scan_threads(threads, sleep_interval = 0.001)
+      init_once(threads)
+
+      scan_threads_helper(sleep_interval) { true }
     end
   end
 end
