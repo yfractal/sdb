@@ -20,28 +20,40 @@ use trace_id::*;
 use std::os::raw::c_void;
 
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
+use lazy_static::lazy_static;
 
+lazy_static! {
+    static ref SDB_MODULE: u64 = unsafe {
+        rb_define_module("Sdb\0".as_ptr() as *const c_char) as u64
+    };
+}
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
     // Print the current thread ID
     let thread_id = thread::current().id();
-    println!("gc enter - current thread ID: {:?}", thread_id);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let nanos = now.as_nanos();
+    println!("[gc-hook][gc enter] - current thread ID: {:?}, time: {} ns", thread_id, nanos);
+    disable_scanner();
 
     // Try to acquire the lock
-    if let Some(lock) = THREADS_TO_SCAN_LOCK.try_lock() {
-        println!("Lock acquired");
-        disable_scanner();
-        drop(lock); // Explicitly drop the lock
-    } else {
-        println!("Failed to acquire lock !!!!!!");
-        disable_scanner(); // Still disable scanner even if lock acquisition fails
-    }
+    // if let Some(lock) = THREADS_TO_SCAN_LOCK.try_lock() {
+    //     println!("Lock acquired");
+    //     disable_scanner();
+    //     drop(lock); // Explicitly drop the lock
+    // } else {
+    //     println!("Failed to acquire lock !!!!!!");
+    //     disable_scanner(); // Still disable scanner even if lock acquisition fails
+    // }
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
-    print!("gc exist\n");
-    let sdb_module: u64 = rb_define_module("Sdb\0".as_ptr() as *const c_char);
-    // no need call enable_scanner, because the scanner will be enabled in the next loop of the puller thread
-    call_method(sdb_module, "start_to_pull", 0, &[]);
+    let thread_id = thread::current().id();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let nanos = now.as_nanos();
+    println!("[gc-hook][gc exist] - current thread ID: {:?}, time: {} ns", thread_id, nanos);
+
+    call_method(*SDB_MODULE as VALUE, "start_to_pull", 0, &[]);
 }
 
 pub(crate) unsafe extern "C" fn setup_gc_hook(_module: VALUE) -> VALUE {
