@@ -8,7 +8,7 @@ use libc::c_void;
 use rb_sys::{
     rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_thread_t};
 use sysinfo::System;
 
 use std::collections::HashMap;
@@ -49,12 +49,6 @@ struct PullData {
     current_thread: VALUE,
     threads_to_scan: VALUE,
     sleep_millis: u32,
-}
-
-#[inline]
-unsafe fn is_valid_thread(thread_val: VALUE) -> bool {
-    // Check if the value is a T_THREAD type
-    (thread_val & 0x1f) == 0x7
 }
 
 #[inline]
@@ -163,17 +157,10 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     let data: &mut PullData = ptr_to_struct(data);
     let trace_table = get_trace_id_table();
 
-    let mut j = 0;
     loop {
         if should_stop_scanner() {
             iseq_logger.flush();
             return ptr::null_mut();
-        }
-
-        j += 1;
-
-        if j % 10 == 0 {
-            println!("looping: {}", j);
         }
 
         let lock = THREADS_TO_SCAN_LOCK.lock();

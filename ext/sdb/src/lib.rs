@@ -20,42 +20,20 @@ use trace_id::*;
 use std::os::raw::c_void;
 
 use lazy_static::lazy_static;
-use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 lazy_static! {
     static ref SDB_MODULE: u64 =
         unsafe { rb_define_module("Sdb\0".as_ptr() as *const c_char) as u64 };
 }
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    let thread_id = thread::current().id();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    let nanos = now.as_nanos();
-    println!(
-        "[gc-hook][gc enter] - current thread ID: {:?}, time: {} ns",
-        thread_id, nanos
-    );
     // when the scanner thread has finished one thread scans, it releases lock,
     // then the lock is acquired by the gc thread, and the gc thread will disable the scanner.
     THREADS_TO_SCAN_LOCK.lock();
-    println!("[gc-hook][gc enter] - lock acquired");
 
     disable_scanner();
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
-    let thread_id = thread::current().id();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    let nanos = now.as_nanos();
-    println!(
-        "[gc-hook][gc exist] - current thread ID: {:?}, time: {} ns",
-        thread_id, nanos
-    );
-
     // start_to_pull triggers puller thread sstart_to_pullignal,
     // the puller thread handles the signal only after it finishes its scanning.
     // As the enable_scanner is called in the puller thread after the condition variable is signaled,
