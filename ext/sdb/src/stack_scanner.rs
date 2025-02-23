@@ -8,7 +8,7 @@ use libc::c_void;
 use rb_sys::{
     rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_iseq_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_thread_t};
 use sysinfo::System;
 
 use std::collections::HashMap;
@@ -49,12 +49,6 @@ struct PullData {
     current_thread: VALUE,
     threads_to_scan: VALUE,
     sleep_millis: u32,
-}
-
-#[inline]
-unsafe fn is_valid_thread(thread_val: VALUE) -> bool {
-    // Check if the value is a T_THREAD type
-    (thread_val & 0x1f) == 0x7
 }
 
 #[inline]
@@ -132,7 +126,6 @@ unsafe extern "C" fn record_thread_frames(
 }
 
 extern "C" fn ubf_do_pull(_: *mut c_void) {
-    // print!("ubf_do_pull\n");
     disable_scanner();
 }
 
@@ -158,22 +151,15 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     enable_scanner();
     let mut iseq_logger = IseqLogger::new();
     let (uptime, clock_time) = uptime_and_clock_time();
-    log::info!("[sdb][do_pull] uptime={:?}, clock_time={:?}", uptime, clock_time);
+    log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
 
     let data: &mut PullData = ptr_to_struct(data);
     let trace_table = get_trace_id_table();
 
-    let mut j = 0;
     loop {
         if should_stop_scanner() {
             iseq_logger.flush();
             return ptr::null_mut();
-        }
-
-        j += 1;
-
-        if j % 10 == 0 {
-            println!("looping: {}", j);
         }
 
         let lock = THREADS_TO_SCAN_LOCK.lock();
@@ -201,7 +187,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
             thread::sleep(Duration::from_millis(data.sleep_millis as u64));
         }
     }
-    // ptr::null_mut()
 }
 
 pub(crate) unsafe extern "C" fn rb_pull(
@@ -209,9 +194,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
     threads_to_scan: VALUE,
     sleep_seconds: VALUE,
 ) -> VALUE {
-    let thread_id = thread::current().id();
-    println!("[sdb] start to pull - current thread ID: {:?}", thread_id);
-
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
 
@@ -220,8 +202,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
         threads_to_scan,
         sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
     };
-
-    println!("[sdb] call rb_thread_call_without_gvl");
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(
