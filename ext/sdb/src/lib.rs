@@ -56,7 +56,12 @@ unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) 
         thread_id, nanos
     );
 
-    enable_scanner();
+    // start_to_pull triggers puller thread sstart_to_pullignal,
+    // the puller thread handles the signal only after it finishes its scanning.
+    // As the enable_scanner is called in the puller thread after the condition variable is signaled,
+    // if before it calls enable_scanner, the gc thread acquires the lock and disables the scanner,
+    // it lost one stop event ....
+    // Add a generation could fix this ...
     call_method(*SDB_MODULE as VALUE, "start_to_pull", 0, &[]);
 }
 

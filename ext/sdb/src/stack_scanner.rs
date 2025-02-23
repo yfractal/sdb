@@ -155,19 +155,25 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 }
 
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
-    log::info!("[sdb] do_pull !!!!!!!!!!!!!");
-
+    enable_scanner();
     let mut iseq_logger = IseqLogger::new();
     let (uptime, clock_time) = uptime_and_clock_time();
-    log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
+    log::info!("[sdb][do_pull] uptime={:?}, clock_time={:?}", uptime, clock_time);
 
     let data: &mut PullData = ptr_to_struct(data);
     let trace_table = get_trace_id_table();
 
+    let mut j = 0;
     loop {
         if should_stop_scanner() {
             iseq_logger.flush();
             return ptr::null_mut();
+        }
+
+        j += 1;
+
+        if j % 10 == 0 {
+            println!("looping: {}", j);
         }
 
         let lock = THREADS_TO_SCAN_LOCK.lock();
@@ -184,7 +190,6 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
             let lock = THREADS_TO_SCAN_LOCK.lock();
             let thread = rb_sys::rb_ary_entry(data.threads_to_scan, i as i64);
             if thread != data.current_thread && thread != Qnil.into() {
-                println!("record thread frames: {:?}", thread);
                 // Record frames while holding the lock to ensure thread stays valid
                 record_thread_frames(thread, trace_table, &mut iseq_logger);
             }
