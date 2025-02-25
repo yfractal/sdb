@@ -20,6 +20,8 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
+
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
     // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
@@ -48,7 +50,7 @@ fn should_stop_scanner() -> bool {
 struct PullData {
     current_thread: VALUE,
     threads_to_scan: VALUE,
-    sleep_millis: u32,
+    sleep_nanos: u64,
 }
 
 #[inline]
@@ -183,8 +185,17 @@ unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
             i += 1;
         }
 
-        if data.sleep_millis != 0 {
-            thread::sleep(Duration::from_millis(data.sleep_millis as u64));
+        if data.sleep_nanos != 0 {
+            if data.sleep_nanos < ONE_MILLISECOND_NS {
+                // For sub-millisecond sleeps, use busy-wait for more precise timing
+                let start = std::time::Instant::now();
+                while start.elapsed().as_nanos() < data.sleep_nanos as u128 {
+                    std::hint::spin_loop();
+                }
+            } else {
+                // For longer sleeps, use regular thread sleep
+                thread::sleep(Duration::from_nanos(data.sleep_nanos));
+            }
         }
     }
 }
@@ -196,11 +207,13 @@ pub(crate) unsafe extern "C" fn rb_pull(
 ) -> VALUE {
     let argv: &[VALUE; 0] = &[];
     let current_thread = call_method(module, "current_thread", 0, argv);
+    let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
+    println!("sleep interval {:?} ns", sleep_nanos / 1000);
 
     let mut data = PullData {
         current_thread: current_thread,
         threads_to_scan,
-        sleep_millis: (rb_num2dbl(sleep_seconds) * 1000.0) as u32,
+        sleep_nanos: sleep_nanos,
     };
 
     // release gvl for avoiding block application's threads
