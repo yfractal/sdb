@@ -152,8 +152,6 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 unsafe extern "C" fn do_pull(data: *mut c_void) -> *mut c_void {
     enable_scanner();
     let mut iseq_logger = IseqLogger::new();
-    let (uptime, clock_time) = uptime_and_clock_time();
-    log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
 
     let data: &mut PullData = ptr_to_struct(data);
     let trace_table = get_trace_id_table();
@@ -225,6 +223,13 @@ pub(crate) unsafe extern "C" fn rb_pull(
     );
 
     Qtrue as VALUE
+}
+
+pub(crate) unsafe extern "C" fn rb_log_uptime_and_clock_time(_module: VALUE) -> VALUE {
+    let (uptime, clock_time) = uptime_and_clock_time();
+    log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
+
+    return Qnil as VALUE;
 }
 
 // for testing

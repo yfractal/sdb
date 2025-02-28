@@ -30,6 +30,7 @@ module Sdb
       raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
 
       self.init_logger
+      self.log_uptime_and_clock_time
       self.setup_gc_hook
       @initialized = true
       @threads_to_scan = threads

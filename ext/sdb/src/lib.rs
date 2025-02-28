@@ -175,6 +175,17 @@ extern "C" fn Init_sdb() {
             0,
         );
 
+        let rb_log_uptime_and_clock_time_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_log_uptime_and_clock_time);
+        rb_define_singleton_method(
+            module,
+            "log_uptime_and_clock_time\0".as_ptr() as _,
+            Some(rb_log_uptime_and_clock_time_callback),
+            0,
+        );
+
         let enable_scanner_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
