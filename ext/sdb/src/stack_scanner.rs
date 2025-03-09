@@ -205,39 +205,28 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
     let trace_table = get_trace_id_table();
 
     loop {
-        let lock = THREADS_TO_SCAN_LOCK.lock();
-
-        if should_stop_scanner() {
-            iseq_logger.flush();
-
-            return ptr::null_mut();
-        }
-
-        // log::debug!("[scanner] scan once");
-        // log::logger().flush();
-        drop(lock);
         for thread in &data.threads {
             let lock = THREADS_TO_SCAN_LOCK.lock();
-            record_thread_frames(*thread, trace_table, iseq_logger);
-            drop(lock);
-
             if should_stop_scanner() {
+                // drop lock for avoiding block Ruby GC
+                // it's safe as there is only one stack scanner.
+                drop(lock);
                 iseq_logger.flush();
                 return ptr::null_mut();
             }
+            record_thread_frames(*thread, trace_table, iseq_logger);
+            drop(lock);
         }
 
-        if data.sleep_nanos != 0 {
-            if data.sleep_nanos < ONE_MILLISECOND_NS {
-                // For sub-millisecond sleeps, use busy-wait for more precise timing
-                let start = std::time::Instant::now();
-                while start.elapsed().as_nanos() < data.sleep_nanos as u128 {
-                    std::hint::spin_loop();
-                }
-            } else {
-                // For longer sleeps, use regular thread sleep
-                thread::sleep(Duration::from_nanos(data.sleep_nanos));
+        if data.sleep_nanos < ONE_MILLISECOND_NS {
+            // For sub-millisecond sleeps, use busy-wait for more precise timing
+            let start = std::time::Instant::now();
+            while start.elapsed().as_nanos() < data.sleep_nanos as u128 {
+                std::hint::spin_loop();
             }
+        } else {
+            // For longer sleeps, use regular thread sleep
+            thread::sleep(Duration::from_nanos(data.sleep_nanos));
         }
     }
 }
