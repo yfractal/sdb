@@ -287,6 +287,8 @@ int gc_move_instrument(struct pt_regs *ctx) {
 
     event.iseq_addr = PT_REGS_PARM2(ctx);
     event.to_addr = PT_REGS_PARM3(ctx);
+    strncpy(event.name, "gc_move", MAX_STR_LENGTH - 1);
+    event.name[MAX_STR_LENGTH - 1] = '\0';
     event.type = 7;
     events.perf_submit(ctx, &event, sizeof(event));
 
