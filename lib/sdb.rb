@@ -25,39 +25,22 @@ module Sdb
 
   class << self
     def init_once(threads = [])
-      puts "init_once threads=#{threads}"
       return true if @initialized
       raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
-
       self.init_logger
       self.log_uptime_and_clock_time
-      self.setup_gc_hook
       @initialized = true
       @threads_to_scan = threads
       @active_threads = []
 
-      @puller_mutex = Mutex.new
-      @puller_cond = ConditionVariable.new
-      @start_to_pull = false
-
       puts "@threads_to_scan=#{@threads_to_scan}"
+      self.set_threads_to_scan(@threads_to_scan)
+      self.setup_gc_hook
+
+      @stack_scanner = StackScanner.new
 
       @puller_thread = Thread.new do
-        loop {
-          @puller_mutex.lock
-          until @start_to_pull
-            @puller_cond.wait(@puller_mutex)
-          end
-
-          if @puller_mutex.try_lock
-            puts "Lock is not held !!!!!!!!!!"
-          end
-
-          @start_to_pull = false
-          @puller_mutex.unlock
-
           self.pull(@threads_to_scan, @sleep_interval)
-        }
       end
     end
 
@@ -77,20 +60,6 @@ module Sdb
     def scan_threads_helper(sleep_interval, &filter)
       @filter = filter
       @sleep_interval = sleep_interval
-
-      @puller_mutex.synchronize do
-        @start_to_pull = true
-        @puller_cond.signal
-      end
-
-      start_to_pull
-    end
-
-    def start_to_pull
-      @puller_mutex.synchronize do
-        @start_to_pull = true
-        @puller_cond.signal
-      end
     end
 
     def scan_puma_threads(sleep_interval = 0.001)

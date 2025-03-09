@@ -12,8 +12,8 @@ with open(current_directory + "/symbolizer.c", "r") as file:
     bpf_text = file.read()
 
 b = BPF(text=bpf_text)
-# binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
-binary_path = "/root/.rbenv/versions/3.1.5/lib/libruby.so.3.1.5"
+binary_path = "/home/ec2-user/.rvm/rubies/ruby-3.1.5/lib/libruby.so.3.1"
+# binary_path = "/root/.rbenv/versions/3.1.5/lib/libruby.so.3.1.5"
 
 # rb_iseq_t *rb_iseq_new         (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent, enum iseq_type);
 # rb_iseq_t *rb_iseq_new_top     (const rb_ast_body_t *ast, VALUE name, VALUE path, VALUE realpath,                     const rb_iseq_t *parent);
