@@ -124,7 +124,6 @@ pub(crate) fn is_stopped() -> bool {
 
 struct PullData {
     current_thread: VALUE,
-    threads_to_scan: VALUE,
     sleep_nanos: u64,
     threads: Vec<VALUE>,
 }
@@ -208,11 +207,10 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
         let lock = THREADS_TO_SCAN_LOCK.lock();
 
         if should_stop_scanner() {
-            log::debug!(
-                "[scanner][main] stop scanner thread_to_scan={:?}",
-                data.threads_to_scan
-            );
-            iseq_logger.flush();
+            // log::debug!(
+            //     "[scanner][main] stop scanner thread_to_scan={:?}",
+            //     data.threads_to_scan
+            // );
 
             // stop once for waiting next turn
             return ptr::null_mut();
@@ -278,7 +276,6 @@ pub(crate) unsafe extern "C" fn rb_pull(
 
     let mut data = PullData {
         current_thread: current_thread,
-        threads_to_scan,
         sleep_nanos: sleep_nanos,
         threads: vec![],
     };

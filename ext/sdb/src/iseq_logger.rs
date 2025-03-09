@@ -1,4 +1,4 @@
-const ISEQS_BUFFER_SIZE: usize = 100_000;
+const ISEQS_BUFFER_SIZE: usize = 10_000;
 
 pub struct IseqLogger {
     buffer: [u64; ISEQS_BUFFER_SIZE],
