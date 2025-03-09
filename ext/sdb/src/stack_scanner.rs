@@ -145,6 +145,7 @@ unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_fra
     slice::from_raw_parts(ec.cfp, len)
 }
 
+#[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
