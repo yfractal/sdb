@@ -208,26 +208,24 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
         let lock = THREADS_TO_SCAN_LOCK.lock();
 
         if should_stop_scanner() {
-            // log::debug!(
-            //     "[scanner][main] stop scanner thread_to_scan={:?}",
-            //     data.threads_to_scan
-            // );
-
-            // normally, the scanner thread is stopped by the gc thread,
-            // we flush the logs fore reducing the latency impact.
             iseq_logger.flush();
 
-            // stop once for waiting the next turn
             return ptr::null_mut();
         }
 
         // log::debug!("[scanner] scan once");
         // log::logger().flush();
-
-        for thread in &data.threads {
-            record_thread_frames(*thread, trace_table, iseq_logger);
-        }
         drop(lock);
+        for thread in &data.threads {
+            let lock = THREADS_TO_SCAN_LOCK.lock();
+            record_thread_frames(*thread, trace_table, iseq_logger);
+            drop(lock);
+
+            if should_stop_scanner() {
+                iseq_logger.flush();
+                return ptr::null_mut();
+            }
+        }
 
         if data.sleep_nanos != 0 {
             if data.sleep_nanos < ONE_MILLISECOND_NS {
