@@ -212,7 +212,11 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
             //     data.threads_to_scan
             // );
 
-            // stop once for waiting next turn
+            // normally, the scanner thread is stopped by the gc thread,
+            // we flush the logs fore reducing the latency impact.
+            iseq_logger.flush();
+
+            // stop once for waiting the next turn
             return ptr::null_mut();
         }
 
