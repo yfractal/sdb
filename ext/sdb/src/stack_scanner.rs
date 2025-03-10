@@ -227,14 +227,13 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
         while i < len {
             let ec = data.ecs[i];
             let thread = data.threads[i];
-            let lock = THREADS_TO_SCAN_LOCK.lock();
             if should_stop_scanner() {
                 // drop lock for avoiding block Ruby GC
                 // it's safe as there is only one stack scanner.
-                drop(lock);
                 iseq_logger.flush();
                 return ptr::null_mut();
             }
+            let lock = THREADS_TO_SCAN_LOCK.lock();
             record_thread_frames(thread, ec, trace_table, iseq_logger);
             drop(lock);
             i += 1;
