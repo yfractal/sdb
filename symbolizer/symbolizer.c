@@ -277,18 +277,18 @@ int rb_define_module_return_instrument(struct pt_regs *ctx) {
 // static VALUE gc_move(rb_objspace_t *objspace, VALUE scan, VALUE free, size_t src_slot_size, size_t slot_size);
 int gc_move_instrument(struct pt_regs *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 pid = pid_tgid >> 32;
+    // u64 pid = pid_tgid >> 32;
     u64 tid = pid_tgid & 0xFFFFFFFF;
 
     struct event_t event = {};
-    event.pid = pid;
+    // event.pid = pid;
     event.tid = tid;
     event.ts = bpf_ktime_get_ns();
 
     event.iseq_addr = PT_REGS_PARM2(ctx);
     event.to_addr = PT_REGS_PARM3(ctx);
-    strncpy(event.name, "gc_move", MAX_STR_LENGTH - 1);
-    event.name[MAX_STR_LENGTH - 1] = '\0';
+    // strncpy(event.name, "gc_move", MAX_STR_LENGTH - 1);
+    // event.name[MAX_STR_LENGTH - 1] = '\0';
     event.type = 7;
     events.perf_submit(ctx, &event, sizeof(event));
 
