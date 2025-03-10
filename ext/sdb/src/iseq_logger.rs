@@ -1,4 +1,5 @@
 const ISEQS_BUFFER_SIZE: usize = 100_000;
+use log::info;
 
 pub struct IseqLogger {
     buffer: [u64; ISEQS_BUFFER_SIZE],
@@ -21,7 +22,7 @@ impl IseqLogger {
             self.buffer[self.buffer_index] = item;
             self.buffer_index += 1;
         } else {
-            log::info!("[stack_frames]{:?}", self.buffer);
+            info!("[stack_frames]{:?}", self.buffer);
             self.buffer_index = 0;
         }
     }
@@ -33,7 +34,7 @@ impl IseqLogger {
     }
 
     pub fn flush(&mut self) {
-        log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+        info!("[stack_frames]{:?}", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
         log::logger().flush();
     }
