@@ -1,7 +1,7 @@
 use rb_sys::{rb_num2ulong, Qfalse, Qtrue, VALUE};
 use std::collections::HashMap;
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 static mut TRACE_TABLE: *mut HashMap<u64, AtomicU64> = ptr::null_mut();
 
@@ -37,14 +37,14 @@ pub(crate) fn get_trace_id_table() -> &'static mut HashMap<u64, AtomicU64> {
 }
 
 #[inline]
-pub(crate) fn set_trace_id(thread: VALUE, trace_id: u64) -> bool {
-    let trace_table = get_trace_id_table();
-    let thread_id = thread as u64;
+pub(crate) fn set_trace_id(_thread: VALUE, _trace_id: u64) -> bool {
+    // let trace_table = get_trace_id_table();
+    // let thread_id = thread as u64;
 
-    trace_table
-        .entry(thread_id)
-        .or_insert_with(|| AtomicU64::new(trace_id))
-        .store(trace_id, Ordering::Release);
+    // trace_table
+    //     .entry(thread_id)
+    //     .or_insert_with(|| AtomicU64::new(trace_id))
+    //     .store(trace_id, Ordering::Release);
 
     true
 }
@@ -61,13 +61,12 @@ pub(crate) fn get_trace_id(_trace_table: &HashMap<u64, AtomicU64>, _thread: VALU
 
 pub(crate) unsafe extern "C" fn rb_set_trace_id(
     _module: VALUE,
-    _thread: VALUE,
-    _trace_id: VALUE,
+    thread: VALUE,
+    trace_id: VALUE,
 ) -> VALUE {
-    Qtrue as VALUE
-    // if set_trace_id(thread, rb_num2ulong(trace_id)) {
-    //     Qtrue as VALUE
-    // } else {
-    //     Qfalse as VALUE
-    // }
+    if set_trace_id(thread, rb_num2ulong(trace_id)) {
+        Qtrue as VALUE
+    } else {
+        Qfalse as VALUE
+    }
 }

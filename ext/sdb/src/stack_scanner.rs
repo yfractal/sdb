@@ -32,11 +32,17 @@ pub struct RbDataType(rb_data_type_t);
 
 pub struct StackScanner {
     should_stop: bool,
+    _ecs: Vec<VALUE>,
+    threads_to_scan: VALUE,
 }
 
 impl StackScanner {
     pub fn new() -> Self {
-        StackScanner { should_stop: false }
+        StackScanner {
+            should_stop: false,
+            _ecs: Vec::new(),
+            threads_to_scan: Qnil as VALUE,
+        }
     }
 
     pub fn stop(&mut self) {
@@ -59,8 +65,6 @@ lazy_static! {
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
     pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
-
-    static ref THREADS_TO_SCAN: Mutex<VALUE> = Mutex::new(0);
     pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
 }
 
@@ -68,15 +72,16 @@ pub(crate) unsafe extern "C" fn rb_set_threads_to_scan(
     _module: VALUE,
     thread_to_scan: VALUE,
 ) -> VALUE {
-    let mut data = THREADS_TO_SCAN.lock();
-    *data = thread_to_scan;
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.threads_to_scan = thread_to_scan;
 
     return Qnil as VALUE;
 }
 
 unsafe extern "C" fn stack_scanner_mark(_data: *mut c_void) {
-    STACK_SCANNER.lock();
-    let threads = *THREADS_TO_SCAN.lock();
+    let stack_scanner = STACK_SCANNER.lock();
+
+    let threads = stack_scanner.threads_to_scan;
 
     if threads == 0 {
         return;
