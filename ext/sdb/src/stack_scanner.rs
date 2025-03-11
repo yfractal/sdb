@@ -28,6 +28,8 @@ use std::sync;
 use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
+const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
+
 pub struct RbDataType(rb_data_type_t);
 
 pub struct StackScanner {
@@ -45,14 +47,17 @@ impl StackScanner {
         }
     }
 
+    #[inline]
     pub fn stop(&mut self) {
         self.should_stop = true;
     }
 
+    #[inline]
     pub fn start(&mut self) {
         self.should_stop = false;
     }
 
+    #[inline]
     pub fn is_stopped(&self) -> bool {
         self.should_stop
     }
@@ -148,7 +153,7 @@ unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_fra
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
     // todo: pass rb_control_frame_struct size in
-    let len = diff / std::mem::size_of::<rb_control_frame_struct>();
+    let len = diff / CONTROL_FRAME_STRUCT_SIZE;
 
     slice::from_raw_parts(ec.cfp, len)
 }
