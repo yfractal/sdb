@@ -51,21 +51,23 @@ pub(crate) fn set_trace_id(thread: VALUE, trace_id: u64) -> bool {
 
 // When we use a memory order, do we need to consider a function as unsafe?
 #[inline]
-pub(crate) fn get_trace_id(trace_table: &HashMap<u64, AtomicU64>, thread: VALUE) -> u64 {
-    trace_table
-        .get(&thread)
-        .map(|atomic| atomic.load(Ordering::Acquire))
-        .unwrap_or(0)
+pub(crate) fn get_trace_id(_trace_table: &HashMap<u64, AtomicU64>, _thread: VALUE) -> u64 {
+    // trace_table
+    //     .get(&thread)
+    //     .map(|atomic| atomic.load(Ordering::Acquire))
+    //     .unwrap_or(0)
+    0
 }
 
 pub(crate) unsafe extern "C" fn rb_set_trace_id(
     _module: VALUE,
-    thread: VALUE,
-    trace_id: VALUE,
+    _thread: VALUE,
+    _trace_id: VALUE,
 ) -> VALUE {
-    if set_trace_id(thread, rb_num2ulong(trace_id)) {
-        Qtrue as VALUE
-    } else {
-        Qfalse as VALUE
-    }
+    Qtrue as VALUE
+    // if set_trace_id(thread, rb_num2ulong(trace_id)) {
+    //     Qtrue as VALUE
+    // } else {
+    //     Qfalse as VALUE
+    // }
 }
