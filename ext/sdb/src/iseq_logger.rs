@@ -32,6 +32,7 @@ impl IseqLogger {
         self.push(u64::MAX);
     }
 
+    #[inline]
     pub fn flush(&mut self) {
         log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
