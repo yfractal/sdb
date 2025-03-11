@@ -20,7 +20,7 @@ fn init_trace_id_table() {
 // Only during rehashing, it needs to avoid all reads at the same time.
 
 // When the Ruby VM creates a new thread, SDB inserts a dummy value into the trace-id table.
-// At this moment, it already acquired the THREADS_TO_SCAN_LOCK, which blocks the scanner thread -- the only reader (see rb_add_thread_to_scan method).
+// At this moment, it already acquired the STACK_SCANNER, which blocks the scanner thread -- the only reader (see rb_add_thread_to_scan method).
 // This guarantees that no reader is accessing this table during rehashing.
 
 // Additionally, when SDB needs to read this, it uses a memory barrier for getting the newest value.

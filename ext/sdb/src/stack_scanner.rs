@@ -25,11 +25,32 @@ use std::{ptr, thread};
 use lazy_static::lazy_static;
 use spin::Mutex;
 use std::sync;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
 pub struct RbDataType(rb_data_type_t);
+
+pub struct StackScanner {
+    should_stop: bool,
+}
+
+impl StackScanner {
+    pub fn new() -> Self {
+        StackScanner { should_stop: false }
+    }
+
+    pub fn stop(&mut self) {
+        self.should_stop = true;
+    }
+
+    pub fn start(&mut self) {
+        self.should_stop = false;
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.should_stop
+    }
+}
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -37,8 +58,7 @@ lazy_static! {
     // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
-    pub static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0); // TODO: remove this lock as we have THREADS_TO_SCAN
-    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false); // THREADS_TO_SCAN_LOCK protects this, no need atomic actually
+    pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
 
     static ref THREADS_TO_SCAN: Mutex<VALUE> = Mutex::new(0);
     pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
@@ -55,7 +75,7 @@ pub(crate) unsafe extern "C" fn rb_set_threads_to_scan(
 }
 
 unsafe extern "C" fn stack_scanner_mark(_data: *mut c_void) {
-    THREADS_TO_SCAN_LOCK.lock();
+    STACK_SCANNER.lock();
     let threads = *THREADS_TO_SCAN.lock();
 
     if threads == 0 {
@@ -102,26 +122,6 @@ pub extern "C" fn rb_stack_scanner_initialize(rb_self: VALUE) -> VALUE {
     }
 
     rb_self
-}
-
-#[inline]
-pub(crate) fn disable_scanner() {
-    STOP_SCANNER.store(true, Ordering::SeqCst);
-}
-
-#[inline]
-pub(crate) fn enable_scanner() {
-    STOP_SCANNER.store(false, Ordering::SeqCst);
-}
-
-#[inline]
-fn should_stop_scanner() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
-}
-
-#[inline]
-pub(crate) fn is_stopped() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
 }
 
 struct PullData {
@@ -196,7 +196,8 @@ unsafe extern "C" fn record_thread_frames(
 }
 
 extern "C" fn ubf_pull_loop(_: *mut c_void) {
-    disable_scanner();
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.stop();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
@@ -227,16 +228,16 @@ unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) 
         while i < len {
             let ec = data.ecs[i];
             let thread = data.threads[i];
-            let lock = THREADS_TO_SCAN_LOCK.lock();
-            if should_stop_scanner() {
+            let stack_scanner = STACK_SCANNER.lock();
+            if stack_scanner.is_stopped() {
                 // drop lock for avoiding block Ruby GC
                 // it's safe as there is only one stack scanner.
-                drop(lock);
+                drop(stack_scanner);
                 iseq_logger.flush();
                 return ptr::null_mut();
             }
             record_thread_frames(thread, ec, trace_table, iseq_logger);
-            drop(lock);
+            drop(stack_scanner);
             i += 1;
         }
 

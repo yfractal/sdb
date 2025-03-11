@@ -28,14 +28,15 @@ lazy_static! {
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
     // when the scanner thread has finished one thread scans, it releases lock,
     // then the lock is acquired by the gc thread, and the gc thread will disable the scanner.
-    // THREADS_TO_SCAN_LOCK.lock();
-    THREADS_TO_SCAN_LOCK.lock();
+    let mut stack_scanner = STACK_SCANNER.lock();
+
     // log::debug!("[gc-hook][enter] stop scanner");
     // log::logger().flush();
     let (lock, _) = &*START_TO_PULL_COND_VAR;
     let mut start = lock.lock().unwrap();
     *start = false;
-    disable_scanner();
+
+    stack_scanner.stop();
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
@@ -46,15 +47,15 @@ unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) 
     // it lost one stop event ....
     // Add a generation could fix this ...
 
-    THREADS_TO_SCAN_LOCK.lock();
+    let mut stack_scanner = STACK_SCANNER.lock();
     // log::debug!("[gc-hook][exist]");
     // log::logger().flush();
 
-    if is_stopped() {
+    if stack_scanner.is_stopped() {
         // log::debug!("[gc-hook][exist] restart stack scanner");
         let (lock, cvar) = &*START_TO_PULL_COND_VAR;
         let mut start = lock.lock().unwrap();
-        enable_scanner();
+        stack_scanner.start();
         *start = true;
         cvar.notify_one();
     }
