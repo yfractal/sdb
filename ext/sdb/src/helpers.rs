@@ -16,16 +16,6 @@ pub(crate) fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VA
     unsafe { rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE) }
 }
 
-#[inline]
-pub(crate) fn struct_to_ptr<T>(data: &mut T) -> *mut c_void {
-    data as *mut T as *mut c_void
-}
-
-#[inline]
-pub(crate) fn ptr_to_struct<T>(ptr: *mut c_void) -> &'static mut T {
-    unsafe { &mut *(ptr as *mut T) }
-}
-
 pub(crate) unsafe extern "C" fn rb_first_lineno_from_iseq_addr(
     _module: VALUE,
     iseq_addr: VALUE,

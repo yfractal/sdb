@@ -125,16 +125,5 @@ extern "C" fn Init_sdb() {
             Some(rb_log_uptime_and_clock_time_callback),
             0,
         );
-
-        let rb_set_threads_to_scan_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
-            unsafe extern "C" fn() -> VALUE,
-        >(rb_set_threads_to_scan);
-        rb_define_singleton_method(
-            module,
-            "set_threads_to_scan\0".as_ptr() as _,
-            Some(rb_set_threads_to_scan_callback),
-            1,
-        );
     }
 }
