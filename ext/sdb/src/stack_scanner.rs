@@ -6,8 +6,7 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_check_typeddata, rb_data_type_struct__bindgen_ty_1, rb_data_type_t,
-    rb_data_typed_object_wrap, rb_gc_mark, rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl,
+    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl,
     Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
@@ -30,8 +29,6 @@ use std::sync::Condvar;
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
 const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
 
-pub struct RbDataType(rb_data_type_t);
-
 pub struct StackScanner {
     should_stop: bool,
     _ecs: Vec<VALUE>,
@@ -50,11 +47,6 @@ impl StackScanner {
     #[inline]
     pub fn stop(&mut self) {
         self.should_stop = true;
-    }
-
-    #[inline]
-    pub fn start(&mut self) {
-        self.should_stop = false;
     }
 
     #[inline]
@@ -81,57 +73,6 @@ pub(crate) unsafe extern "C" fn rb_set_threads_to_scan(
     stack_scanner.threads_to_scan = thread_to_scan;
 
     return Qnil as VALUE;
-}
-
-unsafe extern "C" fn stack_scanner_mark(_data: *mut c_void) {
-    let stack_scanner = STACK_SCANNER.lock();
-
-    let threads = stack_scanner.threads_to_scan;
-
-    if threads == 0 {
-        return;
-    }
-    rb_gc_mark(threads);
-}
-
-pub const SCANNER_DATA_TYPE: RbDataType = build_stack_scaner_data();
-
-pub const fn build_stack_scaner_data() -> RbDataType {
-    let flags = 0_usize as VALUE;
-    let dmark = Some(stack_scanner_mark as unsafe extern "C" fn(*mut c_void));
-    let dfree = None;
-    let dsize = None;
-    let dcompact = None;
-
-    RbDataType(rb_data_type_t {
-        wrap_struct_name: "StackScanner\0".as_ptr() as _,
-        function: rb_data_type_struct__bindgen_ty_1 {
-            dmark,
-            dfree,
-            dsize,
-            dcompact,
-            reserved: [ptr::null_mut(); 1],
-        },
-        parent: ptr::null(),
-        data: ptr::null_mut(),
-        flags,
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rb_stack_scanner_alloc(rb_self: VALUE) -> VALUE {
-    let data = Box::into_raw(Box::new(0i32)) as *mut c_void;
-
-    rb_data_typed_object_wrap(rb_self, data, &SCANNER_DATA_TYPE.0)
-}
-
-#[no_mangle]
-pub extern "C" fn rb_stack_scanner_initialize(rb_self: VALUE) -> VALUE {
-    unsafe {
-        rb_check_typeddata(rb_self, &SCANNER_DATA_TYPE.0);
-    }
-
-    rb_self
 }
 
 struct PullData {

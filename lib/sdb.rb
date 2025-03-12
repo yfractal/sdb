@@ -35,7 +35,6 @@ module Sdb
 
       puts "@threads_to_scan=#{@threads_to_scan}"
       self.set_threads_to_scan(@threads_to_scan)
-      self.setup_gc_hook
 
       @stack_scanner = StackScanner.new
 
