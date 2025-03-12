@@ -223,6 +223,11 @@ pub(crate) unsafe extern "C" fn rb_pull(
     );
 
     let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
+
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.sleep_nanos = sleep_nanos;
+    drop(stack_scanner);
+
     println!("sleep interval {:?} ns", sleep_nanos / 1000);
 
     // release gvl for avoiding block application's threads
