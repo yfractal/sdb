@@ -53,7 +53,6 @@ impl StackScanner {
         self.should_stop
     }
 
-
     // GVL must be hold before calling this function
     pub unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
