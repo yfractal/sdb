@@ -18,7 +18,7 @@ end
 # sleep_interval = 0.00_001
 # sleep_interval = 0.000_001
 sleep_interval = 0.0000_0_01
-Sdb.scan_threads([Thread.current], sleep_interval)
+Sdb.scan_all_threads(sleep_interval)
 test(150, 500_000_000)
 
 

@@ -214,25 +214,16 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
 }
 
 pub(crate) unsafe extern "C" fn rb_pull(
-    module: VALUE,
-    threads_to_scan: VALUE,
+    _module: VALUE,
     sleep_seconds: VALUE,
 ) -> VALUE {
     log::debug!(
-        "[scanner][main] start to pull thread_to_scan = {:?}, sleep_seconds = {:?}",
-        threads_to_scan,
+        "[scanner][main] start to pull sleep_seconds = {:?}",
         sleep_seconds
     );
-    log::logger().flush();
 
-    let argv: &[VALUE; 0] = &[];
-    let current_thread = call_method(module, "current_thread", 0, argv);
     let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
     println!("sleep interval {:?} ns", sleep_nanos / 1000);
-
-    let mut stack_scanner = STACK_SCANNER.lock();
-    stack_scanner.update_threads(threads_to_scan, current_thread);
-    drop(stack_scanner);
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(
@@ -248,6 +239,20 @@ pub(crate) unsafe extern "C" fn rb_pull(
 pub(crate) unsafe extern "C" fn rb_log_uptime_and_clock_time(_module: VALUE) -> VALUE {
     let (uptime, clock_time) = uptime_and_clock_time();
     log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
+
+    return Qnil as VALUE;
+}
+
+pub(crate) unsafe extern "C" fn rb_update_threads_to_scan(
+    module: VALUE,
+    threads_to_scan: VALUE,
+) -> VALUE {
+    let argv: &[VALUE; 0] = &[];
+    let current_thread = call_method(module, "current_thread", 0, argv);
+
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.update_threads(threads_to_scan, current_thread);
+    drop(stack_scanner);
 
     return Qnil as VALUE;
 }

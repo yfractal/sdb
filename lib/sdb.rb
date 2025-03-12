@@ -21,7 +21,7 @@ module Sdb
     end
   end
 
-  # Thread.prepend(ThreadInitializePatch)
+  Thread.prepend(ThreadInitializePatch)
 
   class << self
     def init_once(threads = [])
@@ -30,19 +30,15 @@ module Sdb
       self.init_logger
       self.log_uptime_and_clock_time
       @initialized = true
-      @threads_to_scan = threads
       @active_threads = []
 
-      puts "@threads_to_scan=#{@threads_to_scan}"
-      self.set_threads_to_scan(@threads_to_scan)
-
-      @stack_scanner = StackScanner.new
+      puts "threads_to_scan=#{threads}"
+      self.update_threads_to_scan(threads)
 
       @puller_thread = Thread.new do
-          self.pull(@threads_to_scan, @sleep_interval)
+          self.pull(@sleep_interval)
       end
     end
-
 
     def current_thread
       @current_thread ||= Thread.current
@@ -75,10 +71,21 @@ module Sdb
       scan_threads_helper(sleep_interval) { true }
     end
 
-    def scan_threads(threads, sleep_interval = 0.001)
-      init_once(threads)
+    def thread_created(thread)
+      @active_threads << thread
 
-      scan_threads_helper(sleep_interval) { true }
+      threads_to_scan = @active_threads.filter(&@filter)
+
+      puts "thread_created: threads_to_scan=#{threads_to_scan}"
+      self.update_threads_to_scan(threads_to_scan)
+    end
+
+    def thread_deleted(thread)
+      @active_threads.delete(thread)
+      threads_to_scan = @active_threads.filter(&@filter)
+
+      puts "thread_deleted: threads_to_scan=#{threads_to_scan}"
+      self.update_threads_to_scan(threads_to_scan)
     end
   end
 end

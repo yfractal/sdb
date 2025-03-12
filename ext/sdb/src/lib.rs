@@ -33,10 +33,10 @@ extern "C" fn Init_sdb() {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
         let pull_callback = std::mem::transmute::<
-            unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
         >(rb_pull);
-        rb_define_singleton_method(module, "pull\0".as_ptr() as _, Some(pull_callback), 2);
+        rb_define_singleton_method(module, "pull\0".as_ptr() as _, Some(pull_callback), 1);
 
         let set_trace_id_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE, VALUE, VALUE) -> VALUE,
@@ -124,6 +124,17 @@ extern "C" fn Init_sdb() {
             "log_uptime_and_clock_time\0".as_ptr() as _,
             Some(rb_log_uptime_and_clock_time_callback),
             0,
+        );
+
+        let rb_update_threads_to_scan_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE, VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_update_threads_to_scan);
+        rb_define_singleton_method(
+            module,
+            "update_threads_to_scan\0".as_ptr() as _,
+            Some(rb_update_threads_to_scan_callback),
+            1,
         );
     }
 }
