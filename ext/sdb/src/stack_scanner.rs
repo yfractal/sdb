@@ -6,11 +6,11 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_check_typeddata, rb_data_type_struct__bindgen_ty_1, rb_data_type_t,
-    rb_data_typed_object_wrap, rb_gc_mark, rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl,
-    Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
-use rbspy_ruby_structs::ruby_3_1_5::{rb_control_frame_struct, rb_thread_t};
+use rbspy_ruby_structs::ruby_3_1_5::{
+    rb_control_frame_struct, rb_execution_context_struct, rb_thread_t,
+};
 // use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
 use sysinfo::System;
@@ -22,12 +22,60 @@ use std::{ptr, thread};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
-use std::sync;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
-pub struct RbDataType(rb_data_type_t);
+const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
+
+pub struct StackScanner {
+    should_stop: bool,
+    ecs: Vec<VALUE>,
+    threads: Vec<VALUE>,
+    sleep_nanos: u64,
+}
+
+impl StackScanner {
+    pub fn new() -> Self {
+        StackScanner {
+            should_stop: false,
+            ecs: Vec::new(),
+            threads: Vec::new(),
+            sleep_nanos: 0,
+        }
+    }
+
+    #[inline]
+    pub fn stop(&mut self) {
+        self.should_stop = true;
+    }
+
+    #[inline]
+    pub fn is_stopped(&self) -> bool {
+        self.should_stop
+    }
+
+    // GVL must be hold before calling this function
+    pub unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
+        let threads_count = RARRAY_LEN(threads_to_scan) as isize;
+
+        let mut i: isize = 0;
+        while i < threads_count {
+            let thread = rb_sys::rb_ary_entry(threads_to_scan, i as i64);
+
+            if thread != current_thread && thread != Qnil.into() {
+                self.threads.push(thread);
+
+                let thread_ptr: *mut RTypedData = thread as *mut RTypedData;
+                let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
+                let thread = *thread_struct_ptr;
+                let ec = thread.ec;
+
+                self.ecs.push(ec as VALUE);
+            }
+
+            i += 1;
+        }
+    }
+}
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -35,98 +83,7 @@ lazy_static! {
     // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
-    pub static ref THREADS_TO_SCAN_LOCK: Mutex<i32> = Mutex::new(0); // TODO: remove this lock as we have THREADS_TO_SCAN
-    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false); // THREADS_TO_SCAN_LOCK protects this, no need atomic actually
-
-    static ref THREADS_TO_SCAN: Mutex<VALUE> = Mutex::new(0);
-    pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
-}
-
-pub(crate) unsafe extern "C" fn rb_set_threads_to_scan(
-    _module: VALUE,
-    thread_to_scan: VALUE,
-) -> VALUE {
-    let mut data = THREADS_TO_SCAN.lock();
-    *data = thread_to_scan;
-
-    return Qnil as VALUE;
-}
-
-unsafe extern "C" fn stack_scanner_mark(_data: *mut c_void) {
-    THREADS_TO_SCAN_LOCK.lock();
-    let threads = *THREADS_TO_SCAN.lock();
-
-    if threads == 0 {
-        return;
-    }
-    rb_gc_mark(threads);
-}
-
-pub const SCANNER_DATA_TYPE: RbDataType = build_stack_scaner_data();
-
-pub const fn build_stack_scaner_data() -> RbDataType {
-    let flags = 0_usize as VALUE;
-    let dmark = Some(stack_scanner_mark as unsafe extern "C" fn(*mut c_void));
-    let dfree = None;
-    let dsize = None;
-    let dcompact = None;
-
-    RbDataType(rb_data_type_t {
-        wrap_struct_name: "StackScanner\0".as_ptr() as _,
-        function: rb_data_type_struct__bindgen_ty_1 {
-            dmark,
-            dfree,
-            dsize,
-            dcompact,
-            reserved: [ptr::null_mut(); 1],
-        },
-        parent: ptr::null(),
-        data: ptr::null_mut(),
-        flags,
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rb_stack_scanner_alloc(rb_self: VALUE) -> VALUE {
-    let data = Box::into_raw(Box::new(0i32)) as *mut c_void;
-
-    rb_data_typed_object_wrap(rb_self, data, &SCANNER_DATA_TYPE.0)
-}
-
-#[no_mangle]
-pub extern "C" fn rb_stack_scanner_initialize(rb_self: VALUE) -> VALUE {
-    unsafe {
-        rb_check_typeddata(rb_self, &SCANNER_DATA_TYPE.0);
-    }
-
-    rb_self
-}
-
-#[inline]
-pub(crate) fn disable_scanner() {
-    STOP_SCANNER.store(true, Ordering::SeqCst);
-}
-
-#[inline]
-pub(crate) fn enable_scanner() {
-    STOP_SCANNER.store(false, Ordering::SeqCst);
-}
-
-#[inline]
-fn should_stop_scanner() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
-}
-
-#[inline]
-pub(crate) fn is_stopped() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
-}
-
-struct PullData {
-    current_thread: VALUE,
-    threads_to_scan: VALUE,
-    sleep_nanos: u64,
-    threads: Vec<VALUE>,
+    pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
 }
 
 #[inline]
@@ -141,17 +98,32 @@ unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_fra
     let stack_base = ec.vm_stack.add(ec.vm_stack_size);
     let diff = (stack_base as usize) - (ec.cfp as usize);
     // todo: pass rb_control_frame_struct size in
+    let len = diff / CONTROL_FRAME_STRUCT_SIZE;
+
+    slice::from_raw_parts(ec.cfp, len)
+}
+
+#[inline]
+// Caller needs to guarantee the thread is alive until the end of this function
+unsafe fn get_control_frame_slice2(ec_val: VALUE) -> &'static [rb_control_frame_struct] {
+    let ec = *(ec_val as *mut rb_execution_context_struct);
+
+    let stack_base = ec.vm_stack.add(ec.vm_stack_size);
+    let diff = (stack_base as usize) - (ec.cfp as usize);
+    // todo: pass rb_control_frame_struct size in
     let len = diff / std::mem::size_of::<rb_control_frame_struct>();
 
     slice::from_raw_parts(ec.cfp, len)
 }
 
+#[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
+    ec_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
     iseq_logger: &mut IseqLogger,
 ) -> bool {
-    let frames = get_control_frame_slice(thread_val);
+    let frames = get_control_frame_slice2(ec_val);
 
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
@@ -179,7 +151,8 @@ unsafe extern "C" fn record_thread_frames(
 }
 
 extern "C" fn ubf_pull_loop(_: *mut c_void) {
-    disable_scanner();
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.stop();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
@@ -200,106 +173,69 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     }
 }
 
-#[inline]
-unsafe extern "C" fn do_loop(data: &mut PullData, iseq_logger: &mut IseqLogger) -> *mut c_void {
+unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
+    let mut iseq_logger = IseqLogger::new();
+
     let trace_table = get_trace_id_table();
 
     loop {
-        let lock = THREADS_TO_SCAN_LOCK.lock();
-
-        if should_stop_scanner() {
-            log::debug!(
-                "[scanner][main] stop scanner thread_to_scan={:?}",
-                data.threads_to_scan
-            );
+        let mut i = 0;
+        let stack_scanner = STACK_SCANNER.lock();
+        let len = stack_scanner.ecs.len();
+        let sleep_nanos = stack_scanner.sleep_nanos;
+        if stack_scanner.is_stopped() {
+            // drop lock for avoiding block Ruby GC
+            // it's safe as there is only one stack scanner.
+            drop(stack_scanner);
             iseq_logger.flush();
-
-            // stop once for waiting next turn
             return ptr::null_mut();
         }
 
-        // log::debug!("[scanner] scan once");
-        // log::logger().flush();
-
-        for thread in &data.threads {
-            record_thread_frames(*thread, trace_table, iseq_logger);
+        while i < len {
+            let ec = stack_scanner.ecs[i];
+            let thread = stack_scanner.threads[i];
+            record_thread_frames(thread, ec, trace_table, &mut iseq_logger);
+            i += 1;
         }
-        drop(lock);
 
-        if data.sleep_nanos != 0 {
-            if data.sleep_nanos < ONE_MILLISECOND_NS {
-                // For sub-millisecond sleeps, use busy-wait for more precise timing
-                let start = std::time::Instant::now();
-                while start.elapsed().as_nanos() < data.sleep_nanos as u128 {
-                    std::hint::spin_loop();
-                }
-            } else {
-                // For longer sleeps, use regular thread sleep
-                thread::sleep(Duration::from_nanos(data.sleep_nanos));
+        drop(stack_scanner);
+
+        if sleep_nanos < ONE_MILLISECOND_NS {
+            // For sub-millisecond sleeps, use busy-wait for more precise timing
+            let start = std::time::Instant::now();
+            while start.elapsed().as_nanos() < sleep_nanos as u128 {
+                std::hint::spin_loop();
             }
+        } else {
+            // For longer sleeps, use regular thread sleep
+            thread::sleep(Duration::from_nanos(sleep_nanos));
         }
-    }
-}
-
-unsafe extern "C" fn pull_loop(data: *mut c_void) -> *mut c_void {
-    let mut iseq_logger = IseqLogger::new();
-
-    let data: &mut PullData = ptr_to_struct(data);
-
-    loop {
-        let (start_to_pull_lock, cvar) = &*START_TO_PULL_COND_VAR;
-        let mut start = start_to_pull_lock.lock().unwrap();
-
-        while !*start {
-            start = cvar.wait(start).unwrap();
-        }
-        drop(start);
-
-        do_loop(data, &mut iseq_logger);
     }
 }
 
 pub(crate) unsafe extern "C" fn rb_pull(
-    module: VALUE,
-    threads_to_scan: VALUE,
+    _module: VALUE,
     sleep_seconds: VALUE,
 ) -> VALUE {
     log::debug!(
-        "[scanner][main] start to pull thread_to_scan = {:?}, sleep_seconds = {:?}",
-        threads_to_scan,
+        "[scanner][main] start to pull sleep_seconds = {:?}",
         sleep_seconds
     );
-    log::logger().flush();
 
-    let argv: &[VALUE; 0] = &[];
-    let current_thread = call_method(module, "current_thread", 0, argv);
     let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
+
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.sleep_nanos = sleep_nanos;
+    drop(stack_scanner);
+
     println!("sleep interval {:?} ns", sleep_nanos / 1000);
-
-    let mut data = PullData {
-        current_thread: current_thread,
-        threads_to_scan,
-        sleep_nanos: sleep_nanos,
-        threads: vec![],
-    };
-
-    let threads_count = RARRAY_LEN(threads_to_scan) as isize;
-    let mut i: isize = 0;
-    while i < threads_count {
-        let thread = rb_sys::rb_ary_entry(threads_to_scan, i as i64);
-        if thread != data.current_thread && thread != Qnil.into() {
-            data.threads.push(thread);
-        }
-
-        i += 1;
-    }
 
     // release gvl for avoiding block application's threads
     rb_thread_call_without_gvl(
         Some(pull_loop),
-        struct_to_ptr(&mut data),
+        ptr::null_mut(),
         Some(ubf_pull_loop),
-        struct_to_ptr(&mut data),
+        ptr::null_mut(),
     );
 
     Qtrue as VALUE
@@ -308,6 +244,20 @@ pub(crate) unsafe extern "C" fn rb_pull(
 pub(crate) unsafe extern "C" fn rb_log_uptime_and_clock_time(_module: VALUE) -> VALUE {
     let (uptime, clock_time) = uptime_and_clock_time();
     log::info!("[time] uptime={:?}, clock_time={:?}", uptime, clock_time);
+
+    return Qnil as VALUE;
+}
+
+pub(crate) unsafe extern "C" fn rb_update_threads_to_scan(
+    module: VALUE,
+    threads_to_scan: VALUE,
+) -> VALUE {
+    let argv: &[VALUE; 0] = &[];
+    let current_thread = call_method(module, "current_thread", 0, argv);
+
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.update_threads(threads_to_scan, current_thread);
+    drop(stack_scanner);
 
     return Qnil as VALUE;
 }

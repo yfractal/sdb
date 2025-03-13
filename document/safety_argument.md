@@ -24,7 +24,7 @@ To use a hash table safely, we need to consider:
 1. Before resizing a hash table, we should have exclusive access.
 2. When querying a hash table, we should see the most recent write.
 
-When creating a new Ruby thread, a mutex (`THREADS_TO_SCAN_LOCK`) is acquired for updating the threads list. This mutex is used for guarantee exclusive access when updating the threads list, while this lock is held, the scanner is blocked too. During this time, a dummy trace-id is inserted for the thread into the table. Similarly, when a Ruby thread is being reclaimed, the lock is acquired, and the thread is deleted from the table. Hash resizing can only happen when a new key is added or a key is deleted. Since the lock is held during these operations, the scanner thread does not read the table, fulfilling the first consideration.
+When creating a new Ruby thread, a mutex (`STACK_SCANNER`) is acquired for updating the threads list. This mutex is used for guarantee exclusive access when updating the threads list, while this lock is held, the scanner is blocked too. During this time, a dummy trace-id is inserted for the thread into the table. Similarly, when a Ruby thread is being reclaimed, the lock is acquired, and the thread is deleted from the table. Hash resizing can only happen when a new key is added or a key is deleted. Since the lock is held during these operations, the scanner thread does not read the table, fulfilling the first consideration.
 
 For the second consideration, SDB uses atomic variables for the hash table's values with memory ordering (release order when updating and acquire order when reading).
 
