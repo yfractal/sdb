@@ -16,7 +16,7 @@ for x, y in zip(sampling_intervals, sdb[:len(sampling_intervals)]):
     plt.annotate(f'{y:.2f}', (x, y), textcoords="offset points", xytext=(0,10), ha='center')
 
 # Plot sdb_signal with annotations
-line2, = plt.plot(sampling_intervals, sdb_signal[:len(sampling_intervals)], label='sdb-signal', marker='s', color='skyblue')
+line2, = plt.plot(sampling_intervals, sdb_signal[:len(sampling_intervals)], label='GVL Solution', marker='s', color='skyblue')
 for x, y in zip(sampling_intervals, sdb_signal[:len(sampling_intervals)]):
     plt.annotate(f'{y:.2f}', (x, y + 1.5), textcoords="offset points", xytext=(0,10), ha='center')
 
@@ -29,10 +29,21 @@ for x, y in zip(sampling_intervals, sdb_signal[:len(sampling_intervals)]):
 # Set the scale to logarithmic
 plt.xscale('log')
 
+
+x_labels = ['0', '1 ms', '0.1 ms', '0.01 ms', '0.001 ms']
+# plt.xticks(sampling_intervals, x_labels)
+plt.xticks(sampling_intervals, x_labels, rotation=0)  # rotation=0 keeps labels horizontal
+plt.grid(True, which="both", ls="-", alpha=0.2)
+
+# Adjust figure size and margins
+plt.gcf().set_size_inches(16, 8)
+plt.margins(x=0.1)
+plt.legend(loc='upper left')  # Moved legend to avoid overlap
+
 # Add labels and title
-plt.xlabel('Sampling Rate(Hz)')
-plt.ylabel('Second')
-plt.title('SDB vs SDB Signal')
+plt.xlabel('Sampling Interval')
+plt.ylabel('Script Execution Time(s)')
+plt.title('SDB vs GVL Solution')
 
 # Add legend
 plt.legend()

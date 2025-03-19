@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Data
-metrics = ['Avg Latency', 'CPU']
+metrics = ['Avg Latency Increased', 'CPU']
 sdb = [1.13, 3.0]
 rbspy = [0.05, 155]
 vernier = [11.47, 2.87]
@@ -21,8 +21,8 @@ plt.figure(figsize=(12, 6))
 # Create bars
 bars1 = plt.bar(r1, sdb, bar_width, label='sdb', color='lightgreen')
 bars2 = plt.bar(r2, rbspy, bar_width, label='rbspy', color='skyblue')
-bars3 = plt.bar(r3, vernier, bar_width, label='vernier', color='lightpink')
-bars4 = plt.bar(r4, newrelic, bar_width, label='newrelic', color='orange')
+bars3 = plt.bar(r3, vernier, bar_width, label='vernier 1.0', color='lightpink')
+bars4 = plt.bar(r4, newrelic, bar_width, label='an instrumentation library', color='orange')
 
 # Add value labels on top of each bar
 def add_labels(bars):
