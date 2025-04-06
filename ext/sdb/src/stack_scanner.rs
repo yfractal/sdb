@@ -193,17 +193,14 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
             return ptr::null_mut();
         }
 
-        let start = Utc::now();
         while i < len {
             let ec = stack_scanner.ecs[i];
             let thread = stack_scanner.threads[i];
             record_thread_frames(thread, ec, trace_table, &mut stack_scanner.iseq_logger);
             i += 1;
         }
-        let end = Utc::now();
 
         drop(stack_scanner);
-        println!("takes {:?} ms", (end.timestamp_micros() - start.timestamp_micros()) / 1000);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
             // For sub-millisecond sleeps, use busy-wait for more precise timing
@@ -212,8 +209,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
                 std::hint::spin_loop();
             }
         } else {
-            // For longer sleeps, use regular thread sleep
-            thread::sleep(Duration::from_nanos(sleep_nanos));
+            thread::sleep(Duration::from_nanos(sleep_nanos / 10 * 9));
         }
     }
 }
