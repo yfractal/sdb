@@ -34,7 +34,7 @@ impl IseqLogger {
 
     #[inline]
     pub fn flush(&mut self) {
-        log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+        log::info!("[stack_frames]{:?}", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
         log::logger().flush();
     }
