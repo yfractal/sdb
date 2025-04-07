@@ -1,4 +1,4 @@
-const ISEQS_BUFFER_SIZE: usize = 100_000;
+const ISEQS_BUFFER_SIZE: usize = 1_000_000;
 
 pub struct IseqLogger {
     buffer: [u64; ISEQS_BUFFER_SIZE],
@@ -34,7 +34,7 @@ impl IseqLogger {
 
     #[inline]
     pub fn flush(&mut self) {
-        log::info!("[stack_frames][{:?}]", &self.buffer[..self.buffer_index]);
+        log::info!("[stack_frames]{:?}", &self.buffer[..self.buffer_index]);
         self.buffer_index = 0;
         log::logger().flush();
     }

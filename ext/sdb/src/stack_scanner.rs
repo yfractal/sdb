@@ -26,11 +26,21 @@ use spin::Mutex;
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
 const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
 
+lazy_static! {
+    // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
+    // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
+    // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
+    // I am not sure this could happen and even if it could happen, it should extremely rare.
+    // So, I think it is good choice to use spinlock here
+    pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
+}
+
 pub struct StackScanner {
     should_stop: bool,
     ecs: Vec<VALUE>,
     threads: Vec<VALUE>,
     sleep_nanos: u64,
+    iseq_logger: IseqLogger,
 }
 
 impl StackScanner {
@@ -40,12 +50,14 @@ impl StackScanner {
             ecs: Vec::new(),
             threads: Vec::new(),
             sleep_nanos: 0,
+            iseq_logger: IseqLogger::new(),
         }
     }
 
     #[inline]
     pub fn stop(&mut self) {
         self.should_stop = true;
+        self.iseq_logger.flush();
     }
 
     #[inline]
@@ -56,6 +68,8 @@ impl StackScanner {
     // GVL must be hold before calling this function
     pub unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
+        self.threads = [].to_vec();
+        self.ecs = [].to_vec();
 
         let mut i: isize = 0;
         while i < threads_count {
@@ -75,15 +89,6 @@ impl StackScanner {
             i += 1;
         }
     }
-}
-
-lazy_static! {
-    // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
-    // Spinlock is simpler and in scanner which acquires and releases the lock quit fast.
-    // The only potential issue is that Ruby may suspend the thread for a long time, for example GC.
-    // I am not sure this could happen and even if it could happen, it should extremely rare.
-    // So, I think it is good choice to use spinlock here
-    pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
 }
 
 #[inline]
@@ -174,27 +179,24 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 }
 
 unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
-    let mut iseq_logger = IseqLogger::new();
-
     let trace_table = get_trace_id_table();
 
     loop {
         let mut i = 0;
-        let stack_scanner = STACK_SCANNER.lock();
+        let mut stack_scanner = STACK_SCANNER.lock();
         let len = stack_scanner.ecs.len();
         let sleep_nanos = stack_scanner.sleep_nanos;
         if stack_scanner.is_stopped() {
             // drop lock for avoiding block Ruby GC
             // it's safe as there is only one stack scanner.
             drop(stack_scanner);
-            iseq_logger.flush();
             return ptr::null_mut();
         }
 
         while i < len {
             let ec = stack_scanner.ecs[i];
             let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut iseq_logger);
+            record_thread_frames(thread, ec, trace_table, &mut stack_scanner.iseq_logger);
             i += 1;
         }
 
@@ -207,8 +209,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
                 std::hint::spin_loop();
             }
         } else {
-            // For longer sleeps, use regular thread sleep
-            thread::sleep(Duration::from_nanos(sleep_nanos));
+            thread::sleep(Duration::from_nanos(sleep_nanos / 10 * 9));
         }
     }
 }
