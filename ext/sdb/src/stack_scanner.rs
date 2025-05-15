@@ -1,8 +1,7 @@
 use crate::helpers::*;
 use crate::iseq_logger::*;
+use crate::symbolizer::*;
 use crate::trace_id::*;
-use std::sync::atomic::AtomicU64;
-
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
@@ -11,6 +10,7 @@ use rb_sys::{
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_execution_context_struct, rb_thread_t,
 };
+use std::sync::atomic::AtomicU64;
 // use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
 use sysinfo::System;
@@ -146,6 +146,7 @@ unsafe extern "C" fn record_thread_frames(
         if iseq_addr == 0 {
             let cref_or_me = *frame.sp.offset(-3);
             iseq_logger.push(cref_or_me as u64);
+            produce_symbol(cref_or_me as u64);
         } else {
             iseq_logger.push(iseq_addr);
         }

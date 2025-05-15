@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 #[derive(Debug)]
-struct Node<T> {
+pub struct Node<T> {
     elem: Option<T>,
     next: Option<Arc<RefCell<Node<T>>>>,
 }
@@ -13,16 +13,17 @@ struct Node<T> {
 // then we do not need a lock to protect the queue.
 // The arc is unnecessary in theory, as we can release the node when it has been consumed,
 // but doing this requires to fight with Rust's safety system which is hard.
+// See symbolizer.rs usage.
 
 // NOTICE: this queue is used for single producer and single consumer only.
 #[derive(Debug)]
-struct Queue<T> {
+pub struct Queue<T> {
     head: Arc<RefCell<Node<T>>>,
     tail: Arc<RefCell<Node<T>>>,
 }
 
 impl<T> Queue<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let node = Arc::new(RefCell::new(Node {
             elem: None,
             next: None,
@@ -34,7 +35,7 @@ impl<T> Queue<T> {
         }
     }
 
-    fn produce(&mut self, elem: Option<T>) {
+    pub fn produce(&mut self, elem: Option<T>) {
         // Create new node first
         let new_node = Arc::new(RefCell::new(Node {
             elem: None,
@@ -50,7 +51,7 @@ impl<T> Queue<T> {
         self.tail = new_node;
     }
 
-    fn consume(&mut self) -> Option<T> {
+    pub fn consume(&mut self) -> Option<T> {
         // Need need memory barrier, only consumer can update the head pointer,
         // it's ok if the consumer can't see the producer's updates, it can cause empty returns false result,
         // but as consumer consumes the queue in while loop, it will see the producer's updates eventually.
@@ -66,7 +67,7 @@ impl<T> Queue<T> {
         elem
     }
 
-    fn empty(&self) -> bool {
+    pub fn empty(&self) -> bool {
         Arc::ptr_eq(&self.head, &self.tail)
     }
 }
