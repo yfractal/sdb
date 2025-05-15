@@ -2,19 +2,19 @@ mod gvl;
 mod helpers;
 mod iseq_logger;
 mod logger;
+mod queue;
 mod stack_scanner;
 mod trace_id;
-
 use libc::c_char;
 use rb_sys::{rb_define_module, rb_define_singleton_method, Qnil, VALUE};
 
 use gvl::*;
 use helpers::*;
+use lazy_static::lazy_static;
 use logger::*;
+use queue::*;
 use stack_scanner::*;
 use trace_id::*;
-
-use lazy_static::lazy_static;
 
 lazy_static! {
     static ref SDB_MODULE: u64 =

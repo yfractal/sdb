@@ -214,10 +214,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     }
 }
 
-pub(crate) unsafe extern "C" fn rb_pull(
-    _module: VALUE,
-    sleep_seconds: VALUE,
-) -> VALUE {
+pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) -> VALUE {
     log::debug!(
         "[scanner][main] start to pull sleep_seconds = {:?}",
         sleep_seconds
