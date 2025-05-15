@@ -41,6 +41,7 @@ pub struct StackScanner {
     threads: Vec<VALUE>,
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
+    symbolizer: Symbolizer,
 }
 
 impl StackScanner {
@@ -51,6 +52,7 @@ impl StackScanner {
             threads: Vec::new(),
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
+            symbolizer: Symbolizer::new(),
         }
     }
 
@@ -126,15 +128,15 @@ unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     ec_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
-    iseq_logger: &mut IseqLogger,
+    stack_scanner: &mut StackScanner,
 ) -> bool {
     let frames = get_control_frame_slice2(ec_val);
 
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
-    iseq_logger.push(trace_id);
-    iseq_logger.push(ts as u64);
+    stack_scanner.iseq_logger.push(trace_id);
+    stack_scanner.iseq_logger.push(ts as u64);
 
     for frame in frames {
         let iseq = &*frame.iseq;
@@ -145,14 +147,15 @@ unsafe extern "C" fn record_thread_frames(
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
             let cref_or_me = *frame.sp.offset(-3);
-            iseq_logger.push(cref_or_me as u64);
-            produce_symbol(cref_or_me as u64);
+            stack_scanner.iseq_logger.push(cref_or_me as u64);
+            stack_scanner.symbolizer.push(cref_or_me as u64);
         } else {
-            iseq_logger.push(iseq_addr);
+            stack_scanner.iseq_logger.push(iseq_addr);
+            stack_scanner.symbolizer.push(iseq_addr);
         }
     }
 
-    iseq_logger.push_seperator();
+    stack_scanner.iseq_logger.push_seperator();
     true
 }
 
@@ -197,7 +200,12 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
         while i < len {
             let ec = stack_scanner.ecs[i];
             let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut stack_scanner.iseq_logger);
+            record_thread_frames(
+                thread,
+                ec,
+                trace_table,
+                &mut stack_scanner,
+            );
             i += 1;
         }
 
