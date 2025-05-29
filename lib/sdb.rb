@@ -6,39 +6,15 @@ require_relative "sdb/puma_patch"
 require_relative "sdb/thread_patch"
 
 module Sdb
-  module ThreadInitializePatch
-    def initialize(*args, &block)
-      old_block = block
-
-      block = ->() do
-        Sdb.thread_created(Thread.current)
-        result = old_block.call(*args)
-        Sdb.thread_deleted(Thread.current)
-        result
-      end
-
-      super(&block)
-    end
-  end
-
-  Thread.prepend(ThreadInitializePatch)
-
   class << self
-    def init_once(threads = [])
-      return true if @initialized
+    def init
       raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
       self.init_logger
       self.log_uptime_and_clock_time
       @initialized = true
       @active_threads = []
-
-      puts "threads_to_scan=#{threads}"
-      self.update_threads_to_scan(threads)
+      @lock = Mutex.new
       self.setup_gc_hooks
-
-      @puller_thread = Thread.new do
-          self.pull(@sleep_interval)
-      end
     end
 
     def current_thread
@@ -53,43 +29,67 @@ module Sdb
       self.pull(threads, 0)
     end
 
-    def scan_threads_helper(sleep_interval, &filter)
+    def start_scan_helper(sleep_interval, &filter)
       @filter = filter
       @sleep_interval = sleep_interval
-    end
+      threads_to_scan = @active_threads.filter(&@filter).to_a
+      self.update_threads_to_scan(threads_to_scan)
 
-    def scan_puma_threads(sleep_interval = 0.001)
-      scan_threads_helper(sleep_interval) do |thread|
-        thread.name&.include?('puma srv tp')
+      Thread.new do
+        self.pull(@sleep_interval)
       end
-
-      init_once
     end
 
     def scan_all_threads(sleep_interval = 0.001)
-      init_once
+      start_scan_helper(sleep_interval) { true }
+    end
 
-      scan_threads_helper(sleep_interval) { true }
+    def start_puma_threads(sleep_interval = 0.001)
+      start_scan_helper(sleep_interval) do |thread|
+        thread.name&.include?('puma srv tp')
+      end
     end
 
     def thread_created(thread)
-      @active_threads ||= []
-      @active_threads << thread
+      puts "thread_created called: @active_threads_count=#{@active_threads.count} @active_threads=#{@active_threads}"
 
-      threads_to_scan = @active_threads.filter(&@filter).to_a
+      @lock.synchronize do
+        @active_threads << thread
+        threads_to_scan = @active_threads.filter(&@filter).to_a
 
-      puts "thread_created: threads_to_scan=#{threads_to_scan}"
-      self.update_threads_to_scan(threads_to_scan)
+        puts "thread_created: threads_to_scan_count=#{threads_to_scan.count} threads_to_scan=#{threads_to_scan}"
+        self.update_threads_to_scan(threads_to_scan)
+      end
     end
 
     def thread_deleted(thread)
-      @active_threads ||= []
+      @lock.synchronize do
+        puts "thread_deleted: @active_threads_count=#{@active_threads.count} @active_threads=#{@active_threads}"
+        @active_threads.delete(thread)
+        threads_to_scan = @active_threads.filter(&@filter).to_a
 
-      @active_threads.delete(thread)
-      threads_to_scan = @active_threads.filter(&@filter).to_a
-
-      puts "thread_deleted: threads_to_scan=#{threads_to_scan}"
-      self.update_threads_to_scan(threads_to_scan)
+        puts "thread_deleted: threads_to_scan=#{threads_to_scan}"
+        self.update_threads_to_scan(threads_to_scan)
+      end
     end
   end
 end
+
+Sdb.init
+
+module ThreadInitializePatch
+  def initialize(*args, &block)
+    old_block = block
+
+    block = ->() do
+      Sdb.thread_created(Thread.current)
+      result = old_block.call(*args)
+      Sdb.thread_deleted(Thread.current)
+      result
+    end
+
+    super(&block)
+  end
+end
+
+Thread.prepend(ThreadInitializePatch)
