@@ -22,6 +22,9 @@ use std::{ptr, thread};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
+use std::sync;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
 const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
@@ -33,6 +36,30 @@ lazy_static! {
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
     pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
+    pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
+
+    // todo: put this filed into stack scanner
+    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false);
+}
+
+#[inline]
+pub(crate) fn disable_scanner() {
+    STOP_SCANNER.store(true, Ordering::SeqCst);
+}
+
+#[inline]
+pub(crate) fn enable_scanner() {
+    STOP_SCANNER.store(false, Ordering::SeqCst);
+}
+
+#[inline]
+fn should_stop_scanner() -> bool {
+    STOP_SCANNER.load(Ordering::SeqCst)
+}
+
+#[inline]
+pub(crate) fn is_stopped() -> bool {
+    STOP_SCANNER.load(Ordering::SeqCst)
 }
 
 pub struct StackScanner {
@@ -214,10 +241,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     }
 }
 
-pub(crate) unsafe extern "C" fn rb_pull(
-    _module: VALUE,
-    sleep_seconds: VALUE,
-) -> VALUE {
+pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) -> VALUE {
     log::debug!(
         "[scanner][main] start to pull sleep_seconds = {:?}",
         sleep_seconds
