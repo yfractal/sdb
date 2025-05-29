@@ -205,17 +205,26 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     }
 }
 
-unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
+#[inline]
+unsafe extern "C" fn do_loop() -> *mut c_void {
     let trace_table = get_trace_id_table();
 
     loop {
         let mut i = 0;
+
         let mut stack_scanner = STACK_SCANNER.lock();
         let len = stack_scanner.ecs.len();
         let sleep_nanos = stack_scanner.sleep_nanos;
+
+        if should_stop_scanner() {
+            log::debug!("[scanner][main] stop scanner");
+            stack_scanner.iseq_logger.flush();
+
+            // stop once for waiting next turn
+            return ptr::null_mut();
+        }
+
         if stack_scanner.is_stopped() {
-            // drop lock for avoiding block Ruby GC
-            // it's safe as there is only one stack scanner.
             drop(stack_scanner);
             return ptr::null_mut();
         }
@@ -227,6 +236,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
             i += 1;
         }
 
+        // drop the lock for avoiding block Ruby
         drop(stack_scanner);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
@@ -238,6 +248,20 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
         } else {
             thread::sleep(Duration::from_nanos(sleep_nanos / 10 * 9));
         }
+    }
+}
+
+unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
+    loop {
+        let (start_to_pull_lock, cvar) = &*START_TO_PULL_COND_VAR;
+        let mut start = start_to_pull_lock.lock().unwrap();
+
+        while !*start {
+            start = cvar.wait(start).unwrap();
+        }
+        drop(start);
+
+        do_loop();
     }
 }
 
