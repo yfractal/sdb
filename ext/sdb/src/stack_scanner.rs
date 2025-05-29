@@ -46,6 +46,7 @@ pub struct StackScanner {
     iseq_logger: IseqLogger,
     pause: bool,
     iseq_buffer: Vec<u64>,
+    translated_iseq: HashMap<u64, bool>,
 }
 
 impl StackScanner {
@@ -58,6 +59,7 @@ impl StackScanner {
             iseq_logger: IseqLogger::new(),
             pause: false,
             iseq_buffer: Vec::new(),
+            translated_iseq: HashMap::new(),
         }
     }
 
@@ -89,12 +91,10 @@ impl StackScanner {
 
     #[inline]
     pub fn consume_iseq_buffer(&mut self) {
-        let iseq_buffer = self.iseq_buffer.clone();
-        for iseq in iseq_buffer {
+        for iseq in self.iseq_buffer.drain(..) {
             log::debug!("[gc-hook][enter] iseq: {:?}", iseq);
+            self.translated_iseq.insert(iseq, true);
         }
-
-        self.iseq_buffer.clear();
     }
 
     // GVL must be hold before calling this function
@@ -180,7 +180,9 @@ unsafe extern "C" fn record_thread_frames(
             stack_scanner.iseq_logger.push(cref_or_me as u64);
         } else {
             // TODO: handle the C functions
-            stack_scanner.iseq_buffer.push(iseq_addr);
+            if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
+                stack_scanner.iseq_buffer.push(iseq_addr);
+            }
             stack_scanner.iseq_logger.push(iseq_addr);
         }
     }
