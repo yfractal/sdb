@@ -199,27 +199,29 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 }
 
 #[inline]
-unsafe extern "C" fn do_loop() -> bool {
+// co-work with pull_loop
+unsafe extern "C" fn looping_helper() -> bool {
     let trace_table = get_trace_id_table();
 
     loop {
         let mut i = 0;
 
         let mut stack_scanner = STACK_SCANNER.lock();
-        let len = stack_scanner.ecs.len();
-        let sleep_nanos = stack_scanner.sleep_nanos;
-
-        if stack_scanner.is_stopped() {
-            drop(stack_scanner);
-            return true;
-        }
-
+        // when acquire the lock, check the scanner has been paused or not
         if stack_scanner.is_paused() {
             log::debug!("[scanner][main] pause scanner");
             stack_scanner.iseq_logger.flush();
 
-            // stop once for waiting next turn
+            // pause this looping by return, false means pause the scanner
             return false;
+        }
+
+        let len = stack_scanner.ecs.len();
+        let sleep_nanos = stack_scanner.sleep_nanos;
+
+        if stack_scanner.is_stopped() {
+            // stop this looping by return, true means stop the scanner
+            return true;
         }
 
         while i < len {
@@ -229,7 +231,9 @@ unsafe extern "C" fn do_loop() -> bool {
             i += 1;
         }
 
-        // drop the lock for avoiding block Ruby
+        // After scanning all threads, it drops the lock once for reducing some work,
+        // as ruby doesn't have many threads normally and stack scanning is very fast,
+        // this should ba a good trade-off.
         drop(stack_scanner);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
@@ -254,11 +258,10 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
         }
         drop(start);
 
-        let should_stop = do_loop();
+        // looping until the gc pauses the scanner
+        let should_stop = looping_helper();
         if should_stop {
             return ptr::null_mut();
-        } else {
-            do_loop();
         }
     }
 }
