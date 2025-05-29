@@ -22,6 +22,8 @@ use std::{ptr, thread};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
+use std::sync;
+use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
 const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
@@ -33,6 +35,7 @@ lazy_static! {
     // I am not sure this could happen and even if it could happen, it should extremely rare.
     // So, I think it is good choice to use spinlock here
     pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
+    pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
 }
 
 pub struct StackScanner {
@@ -41,6 +44,7 @@ pub struct StackScanner {
     threads: Vec<VALUE>,
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
+    pause: bool,
 }
 
 impl StackScanner {
@@ -51,7 +55,23 @@ impl StackScanner {
             threads: Vec::new(),
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
+            pause: false,
         }
+    }
+
+    #[inline]
+    pub fn pause(&mut self) {
+        self.pause = true;
+    }
+
+    #[inline]
+    pub fn resume(&mut self) {
+        self.pause = false;
+    }
+
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.pause
     }
 
     #[inline]
@@ -178,19 +198,30 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
     }
 }
 
-unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
+#[inline]
+// co-work with pull_loop
+unsafe extern "C" fn looping_helper() -> bool {
     let trace_table = get_trace_id_table();
 
     loop {
         let mut i = 0;
+
         let mut stack_scanner = STACK_SCANNER.lock();
+        // when acquire the lock, check the scanner has been paused or not
+        if stack_scanner.is_paused() {
+            log::debug!("[scanner][main] pause scanner");
+            stack_scanner.iseq_logger.flush();
+
+            // pause this looping by return, false means pause the scanner
+            return false;
+        }
+
         let len = stack_scanner.ecs.len();
         let sleep_nanos = stack_scanner.sleep_nanos;
+
         if stack_scanner.is_stopped() {
-            // drop lock for avoiding block Ruby GC
-            // it's safe as there is only one stack scanner.
-            drop(stack_scanner);
-            return ptr::null_mut();
+            // stop this looping by return, true means stop the scanner
+            return true;
         }
 
         while i < len {
@@ -200,6 +231,9 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
             i += 1;
         }
 
+        // After scanning all threads, it drops the lock once for reducing some work,
+        // as ruby doesn't have many threads normally and stack scanning is very fast,
+        // this should ba a good trade-off.
         drop(stack_scanner);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
@@ -214,10 +248,25 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     }
 }
 
-pub(crate) unsafe extern "C" fn rb_pull(
-    _module: VALUE,
-    sleep_seconds: VALUE,
-) -> VALUE {
+unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
+    loop {
+        let (start_to_pull_lock, cvar) = &*START_TO_PULL_COND_VAR;
+        let mut start = start_to_pull_lock.lock().unwrap();
+
+        while !*start {
+            start = cvar.wait(start).unwrap();
+        }
+        drop(start);
+
+        // looping until the gc pauses the scanner
+        let should_stop = looping_helper();
+        if should_stop {
+            return ptr::null_mut();
+        }
+    }
+}
+
+pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) -> VALUE {
     log::debug!(
         "[scanner][main] start to pull sleep_seconds = {:?}",
         sleep_seconds

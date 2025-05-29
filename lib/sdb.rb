@@ -34,6 +34,7 @@ module Sdb
 
       puts "threads_to_scan=#{threads}"
       self.update_threads_to_scan(threads)
+      self.setup_gc_hooks
 
       @puller_thread = Thread.new do
           self.pull(@sleep_interval)

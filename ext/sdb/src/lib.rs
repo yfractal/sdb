@@ -6,12 +6,16 @@ mod stack_scanner;
 mod trace_id;
 
 use libc::c_char;
-use rb_sys::{rb_define_module, rb_define_singleton_method, Qnil, VALUE};
+use rb_sys::{
+    rb_define_module, rb_define_singleton_method, rb_tracepoint_enable, rb_tracepoint_new, Qnil,
+    VALUE,
+};
 
 use gvl::*;
 use helpers::*;
 use logger::*;
 use stack_scanner::*;
+use std::os::raw::c_void;
 use trace_id::*;
 
 use lazy_static::lazy_static;
@@ -23,6 +27,62 @@ lazy_static! {
 
 pub(crate) unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
     init_logger();
+    return Qnil as VALUE;
+}
+
+extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
+    log::debug!("[gc-hook][enter] start pause the scanner");
+    // acquire stack_scanner lock for blocking the scanning
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.pause();
+
+    let (lock, _) = &*START_TO_PULL_COND_VAR;
+    let mut start = lock.lock().unwrap();
+    *start = false;
+
+    // Ruby uses GVL, the drop order is not matter actually.
+    // But drop the stack_scanner later can guarantee the scanner go out from the looping_helper and then sees the condvar.
+    drop(start);
+    drop(stack_scanner);
+}
+
+unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
+    log::debug!("[gc-hook][exist] start to resume the scanner");
+    let mut stack_scanner = STACK_SCANNER.lock();
+
+    if stack_scanner.is_paused() {
+        log::debug!("[gc-hook][exist] resume the scanner");
+        let (lock, cvar) = &*START_TO_PULL_COND_VAR;
+        let mut start = lock.lock().unwrap();
+        stack_scanner.resume();
+        *start = true;
+
+        // triggers the scanner thread, here, we still hold the stack_scanner lock,
+        // after the stack_scanner lock is dropped, the scanner starts to scan,
+        // or it could pin for a very short period of time.
+        cvar.notify_one();
+    }
+}
+
+pub(crate) unsafe extern "C" fn setup_gc_hooks(_module: VALUE) -> VALUE {
+    unsafe {
+        let tp = rb_tracepoint_new(
+            0,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_ENTER,
+            Some(gc_enter_callback),
+            std::ptr::null_mut(),
+        );
+        rb_tracepoint_enable(tp);
+
+        let tp_exist = rb_tracepoint_new(
+            0,
+            rb_sys::RUBY_INTERNAL_EVENT_GC_EXIT,
+            Some(gc_exist_callback),
+            std::ptr::null_mut(),
+        );
+        rb_tracepoint_enable(tp_exist);
+    }
+
     return Qnil as VALUE;
 }
 
@@ -135,6 +195,17 @@ extern "C" fn Init_sdb() {
             "update_threads_to_scan\0".as_ptr() as _,
             Some(rb_update_threads_to_scan_callback),
             1,
+        );
+
+        let setup_gc_hook_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(setup_gc_hooks);
+        rb_define_singleton_method(
+            module,
+            "setup_gc_hooks\0".as_ptr() as _,
+            Some(setup_gc_hook_callback),
+            0,
         );
     }
 }
