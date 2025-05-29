@@ -45,6 +45,7 @@ pub struct StackScanner {
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
     pause: bool,
+    iseq_buffer: Vec<u64>,
 }
 
 impl StackScanner {
@@ -56,6 +57,7 @@ impl StackScanner {
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
             pause: false,
+            iseq_buffer: Vec::new(),
         }
     }
 
@@ -85,8 +87,18 @@ impl StackScanner {
         self.should_stop
     }
 
+    #[inline]
+    pub fn consume_iseq_buffer(&mut self) {
+        let iseq_buffer = self.iseq_buffer.clone();
+        for iseq in iseq_buffer {
+            log::debug!("[gc-hook][enter] iseq: {:?}", iseq);
+        }
+
+        self.iseq_buffer.clear();
+    }
+
     // GVL must be hold before calling this function
-    pub unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
+    pub(crate) unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
         self.threads = [].to_vec();
         self.ecs = [].to_vec();
@@ -146,15 +158,15 @@ unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     ec_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
-    iseq_logger: &mut IseqLogger,
+    stack_scanner: &mut StackScanner,
 ) -> bool {
     let frames = get_control_frame_slice2(ec_val);
 
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
-    iseq_logger.push(trace_id);
-    iseq_logger.push(ts as u64);
+    stack_scanner.iseq_logger.push(trace_id);
+    stack_scanner.iseq_logger.push(ts as u64);
 
     for frame in frames {
         let iseq = &*frame.iseq;
@@ -165,13 +177,15 @@ unsafe extern "C" fn record_thread_frames(
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
             let cref_or_me = *frame.sp.offset(-3);
-            iseq_logger.push(cref_or_me as u64);
+            stack_scanner.iseq_logger.push(cref_or_me as u64);
         } else {
-            iseq_logger.push(iseq_addr);
+            // TODO: handle the C functions
+            stack_scanner.iseq_buffer.push(iseq_addr);
+            stack_scanner.iseq_logger.push(iseq_addr);
         }
     }
 
-    iseq_logger.push_seperator();
+    stack_scanner.iseq_logger.push_seperator();
     true
 }
 
@@ -227,7 +241,7 @@ unsafe extern "C" fn looping_helper() -> bool {
         while i < len {
             let ec = stack_scanner.ecs[i];
             let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut stack_scanner.iseq_logger);
+            record_thread_frames(thread, ec, trace_table, &mut stack_scanner);
             i += 1;
         }
 
