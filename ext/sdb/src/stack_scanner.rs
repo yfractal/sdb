@@ -23,7 +23,6 @@ use std::{ptr, thread};
 use lazy_static::lazy_static;
 use spin::Mutex;
 use std::sync;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
@@ -37,29 +36,6 @@ lazy_static! {
     // So, I think it is good choice to use spinlock here
     pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
     pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
-
-    // todo: put this filed into stack scanner
-    static ref STOP_SCANNER: AtomicBool = AtomicBool::new(false);
-}
-
-#[inline]
-pub(crate) fn disable_scanner() {
-    STOP_SCANNER.store(true, Ordering::SeqCst);
-}
-
-#[inline]
-pub(crate) fn enable_scanner() {
-    STOP_SCANNER.store(false, Ordering::SeqCst);
-}
-
-#[inline]
-fn should_stop_scanner() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
-}
-
-#[inline]
-pub(crate) fn is_stopped() -> bool {
-    STOP_SCANNER.load(Ordering::SeqCst)
 }
 
 pub struct StackScanner {
@@ -68,6 +44,7 @@ pub struct StackScanner {
     threads: Vec<VALUE>,
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
+    pause: bool,
 }
 
 impl StackScanner {
@@ -78,7 +55,23 @@ impl StackScanner {
             threads: Vec::new(),
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
+            pause: false,
         }
+    }
+
+    #[inline]
+    pub fn pause(&mut self) {
+        self.pause = true;
+    }
+
+    #[inline]
+    pub fn resume(&mut self) {
+        self.pause = false;
+    }
+
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.pause
     }
 
     #[inline]
@@ -206,7 +199,7 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 }
 
 #[inline]
-unsafe extern "C" fn do_loop() -> *mut c_void {
+unsafe extern "C" fn do_loop() -> bool {
     let trace_table = get_trace_id_table();
 
     loop {
@@ -216,17 +209,17 @@ unsafe extern "C" fn do_loop() -> *mut c_void {
         let len = stack_scanner.ecs.len();
         let sleep_nanos = stack_scanner.sleep_nanos;
 
-        if should_stop_scanner() {
-            log::debug!("[scanner][main] stop scanner");
+        if stack_scanner.is_stopped() {
+            drop(stack_scanner);
+            return true;
+        }
+
+        if stack_scanner.is_paused() {
+            log::debug!("[scanner][main] pause scanner");
             stack_scanner.iseq_logger.flush();
 
             // stop once for waiting next turn
-            return ptr::null_mut();
-        }
-
-        if stack_scanner.is_stopped() {
-            drop(stack_scanner);
-            return ptr::null_mut();
+            return false;
         }
 
         while i < len {
@@ -261,7 +254,12 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
         }
         drop(start);
 
-        do_loop();
+        let should_stop = do_loop();
+        if should_stop {
+            return ptr::null_mut();
+        } else {
+            do_loop();
+        }
     }
 }
 
