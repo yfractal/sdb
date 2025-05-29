@@ -6,11 +6,14 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN,
+    RSTRING_PTR, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
-    rb_control_frame_struct, rb_execution_context_struct, rb_thread_t,
+    rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
 };
+use std::ffi::CStr;
+
 // use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
 use sysinfo::System;
@@ -91,9 +94,24 @@ impl StackScanner {
 
     #[inline]
     pub fn consume_iseq_buffer(&mut self) {
-        for iseq in self.iseq_buffer.drain(..) {
-            log::debug!("[gc-hook][enter] iseq: {:?}", iseq);
-            self.translated_iseq.insert(iseq, true);
+        unsafe {
+            for iseq in self.iseq_buffer.drain(..) {
+                let iseq_ptr = iseq as usize as *const rb_iseq_struct;
+                let iseq_struct = &*iseq_ptr;
+                let body = &*iseq_struct.body;
+
+                let label = body.location.label as VALUE;
+                let cstr_ptr = RSTRING_PTR(label);
+                let label_str = if !cstr_ptr.is_null() {
+                    CStr::from_ptr(cstr_ptr).to_string_lossy()
+                } else {
+                    "<null>".into()
+                };
+
+                self.iseq_logger
+                    .log(&format!("iseq: {}, label: {:?}", iseq, label_str));
+                self.translated_iseq.insert(iseq, true);
+            }
         }
     }
 

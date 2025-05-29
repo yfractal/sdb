@@ -31,7 +31,6 @@ pub(crate) unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
 }
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
-    log::debug!("[gc-hook][enter] start pause the scanner");
     // acquire stack_scanner lock for blocking the scanning
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.pause();
@@ -48,7 +47,6 @@ extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
 }
 
 unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) {
-    log::debug!("[gc-hook][exist] start to resume the scanner");
     let mut stack_scanner = STACK_SCANNER.lock();
 
     if stack_scanner.is_paused() {
