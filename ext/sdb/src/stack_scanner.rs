@@ -212,7 +212,6 @@ unsafe extern "C" fn record_thread_frames(
 extern "C" fn ubf_pull_loop(_: *mut c_void) {
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.stop();
-    stack_scanner.consume_iseq_buffer();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
@@ -282,6 +281,12 @@ unsafe extern "C" fn looping_helper() -> bool {
     }
 }
 
+unsafe extern "C" fn consume_iseq_buffer_with_gvl(_: *mut c_void) -> *mut c_void {
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.consume_iseq_buffer();
+    ptr::null_mut()
+}
+
 unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     loop {
         let (start_to_pull_lock, cvar) = &*START_TO_PULL_COND_VAR;
@@ -294,7 +299,12 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
 
         // looping until the gc pauses the scanner
         let should_stop = looping_helper();
+
         if should_stop {
+            rb_thread_call_with_gvl(
+                Some(consume_iseq_buffer_with_gvl),
+                ptr::null_mut(),
+            );
             return ptr::null_mut();
         }
     }
