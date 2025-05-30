@@ -6,13 +6,12 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN,
-    RSTRING_PTR, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil, Qtrue,
+    RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
 };
-use std::ffi::CStr;
 
 // use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
@@ -101,15 +100,18 @@ impl StackScanner {
                 let body = &*iseq_struct.body;
 
                 let label = body.location.label as VALUE;
-                let cstr_ptr = RSTRING_PTR(label);
-                let label_str = if !cstr_ptr.is_null() {
-                    CStr::from_ptr(cstr_ptr).to_string_lossy()
-                } else {
-                    "<null>".into()
-                };
+                let label_str = ruby_str_to_rust_str(label);
 
-                self.iseq_logger
-                    .log(&format!("iseq: {}, label: {:?}", iseq, label_str));
+                let first_lineno = body.location.first_lineno;
+
+                let path = body.location.pathobj as VALUE;
+                let path_str = ruby_str_to_rust_str(path);
+
+                self.iseq_logger.log(&format!(
+                    "[symbol] {}, {}, {}, {}",
+                    iseq, label_str, first_lineno, path_str
+                ));
+                self.iseq_logger.flush();
                 self.translated_iseq.insert(iseq, true);
             }
         }
@@ -301,10 +303,7 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
         let should_stop = looping_helper();
 
         if should_stop {
-            rb_thread_call_with_gvl(
-                Some(consume_iseq_buffer_with_gvl),
-                ptr::null_mut(),
-            );
+            rb_thread_call_with_gvl(Some(consume_iseq_buffer_with_gvl), ptr::null_mut());
             return ptr::null_mut();
         }
     }
