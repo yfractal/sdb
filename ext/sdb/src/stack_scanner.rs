@@ -321,6 +321,9 @@ pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) ->
         ptr::null_mut(),
     );
 
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.consume_iseq_buffer();
+
     Qtrue as VALUE
 }
 
