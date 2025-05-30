@@ -116,7 +116,7 @@ impl StackScanner {
     }
 
     // GVL must be hold before calling this function
-    pub(crate) unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
+    pub unsafe fn update_threads(&mut self, threads_to_scan: VALUE, current_thread: VALUE) {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
         self.threads = [].to_vec();
         self.ecs = [].to_vec();
@@ -265,9 +265,8 @@ unsafe extern "C" fn looping_helper() -> bool {
             i += 1;
         }
 
-        // After scanning all threads, it drops the lock once for reducing some work,
-        // as ruby doesn't have many threads normally and stack scanning is very fast,
-        // this should ba a good trade-off.
+        // It only drops the lock after all threads are scanned,
+        // as ruby doesn't have many threads normally and stack scanning is very fast.
         drop(stack_scanner);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
