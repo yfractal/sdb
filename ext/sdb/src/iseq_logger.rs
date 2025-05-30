@@ -38,4 +38,9 @@ impl IseqLogger {
         self.buffer_index = 0;
         log::logger().flush();
     }
+
+    #[inline]
+    pub fn log(&mut self, str: &str) {
+        log::info!("[iseq-logger]{}", str);
+    }
 }

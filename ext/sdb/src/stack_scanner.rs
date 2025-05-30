@@ -6,16 +6,18 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_without_gvl, Qnil, Qtrue, RTypedData, RARRAY_LEN, VALUE,
+    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil, Qtrue,
+    RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
-    rb_control_frame_struct, rb_execution_context_struct, rb_thread_t,
+    rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
 };
+
 // use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
 use sysinfo::System;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::slice;
 use std::time::Duration;
 use std::{ptr, thread};
@@ -45,6 +47,8 @@ pub struct StackScanner {
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
     pause: bool,
+    iseq_buffer: HashSet<u64>,
+    translated_iseq: HashMap<u64, bool>,
 }
 
 impl StackScanner {
@@ -56,6 +60,8 @@ impl StackScanner {
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
             pause: false,
+            iseq_buffer: HashSet::new(),
+            translated_iseq: HashMap::new(),
         }
     }
 
@@ -83,6 +89,32 @@ impl StackScanner {
     #[inline]
     pub fn is_stopped(&self) -> bool {
         self.should_stop
+    }
+
+    #[inline]
+    pub fn consume_iseq_buffer(&mut self) {
+        unsafe {
+            for iseq in self.iseq_buffer.drain() {
+                let iseq_ptr = iseq as usize as *const rb_iseq_struct;
+                let iseq_struct = &*iseq_ptr;
+                let body = &*iseq_struct.body;
+
+                let label = body.location.label as VALUE;
+                let label_str = ruby_str_to_rust_str(label);
+
+                let first_lineno = body.location.first_lineno;
+
+                let path = body.location.pathobj as VALUE;
+                let path_str = ruby_str_to_rust_str(path);
+
+                self.iseq_logger.log(&format!(
+                    "[symbol] {}, {}, {}, {}",
+                    iseq, label_str, first_lineno, path_str
+                ));
+                self.iseq_logger.flush();
+                self.translated_iseq.insert(iseq, true);
+            }
+        }
     }
 
     // GVL must be hold before calling this function
@@ -146,15 +178,15 @@ unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     ec_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
-    iseq_logger: &mut IseqLogger,
+    stack_scanner: &mut StackScanner,
 ) -> bool {
     let frames = get_control_frame_slice2(ec_val);
 
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
-    iseq_logger.push(trace_id);
-    iseq_logger.push(ts as u64);
+    stack_scanner.iseq_logger.push(trace_id);
+    stack_scanner.iseq_logger.push(ts as u64);
 
     for frame in frames {
         let iseq = &*frame.iseq;
@@ -165,13 +197,17 @@ unsafe extern "C" fn record_thread_frames(
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
             let cref_or_me = *frame.sp.offset(-3);
-            iseq_logger.push(cref_or_me as u64);
+            stack_scanner.iseq_logger.push(cref_or_me as u64);
         } else {
-            iseq_logger.push(iseq_addr);
+            // TODO: handle the C functions
+            if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
+                stack_scanner.iseq_buffer.insert(iseq_addr);
+            }
+            stack_scanner.iseq_logger.push(iseq_addr);
         }
     }
 
-    iseq_logger.push_seperator();
+    stack_scanner.iseq_logger.push_seperator();
     true
 }
 
@@ -227,13 +263,12 @@ unsafe extern "C" fn looping_helper() -> bool {
         while i < len {
             let ec = stack_scanner.ecs[i];
             let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut stack_scanner.iseq_logger);
+            record_thread_frames(thread, ec, trace_table, &mut stack_scanner);
             i += 1;
         }
 
-        // After scanning all threads, it drops the lock once for reducing some work,
-        // as ruby doesn't have many threads normally and stack scanning is very fast,
-        // this should ba a good trade-off.
+        // It only drops the lock after all threads are scanned,
+        // as ruby doesn't have many threads normally and stack scanning is very fast.
         drop(stack_scanner);
 
         if sleep_nanos < ONE_MILLISECOND_NS {
@@ -248,6 +283,12 @@ unsafe extern "C" fn looping_helper() -> bool {
     }
 }
 
+unsafe extern "C" fn consume_iseq_buffer_with_gvl(_: *mut c_void) -> *mut c_void {
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.consume_iseq_buffer();
+    ptr::null_mut()
+}
+
 unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     loop {
         let (start_to_pull_lock, cvar) = &*START_TO_PULL_COND_VAR;
@@ -260,7 +301,9 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
 
         // looping until the gc pauses the scanner
         let should_stop = looping_helper();
+
         if should_stop {
+            rb_thread_call_with_gvl(Some(consume_iseq_buffer_with_gvl), ptr::null_mut());
             return ptr::null_mut();
         }
     }
@@ -287,6 +330,9 @@ pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) ->
         Some(ubf_pull_loop),
         ptr::null_mut(),
     );
+
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.consume_iseq_buffer();
 
     Qtrue as VALUE
 }

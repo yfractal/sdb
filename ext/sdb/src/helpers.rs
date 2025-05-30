@@ -1,6 +1,9 @@
 use libc::{c_char, c_int, c_long, c_void};
-use rb_sys::{rb_funcallv, rb_intern2, rb_num2long, Qnil, ID, VALUE};
+use rb_sys::{
+    rb_funcallv, rb_intern2, rb_num2long, ruby_value_type, Qnil, ID, RB_TYPE, RSTRING_PTR, VALUE,
+};
 use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
+use std::ffi::CStr;
 
 #[inline]
 pub(crate) fn internal_id(string: &str) -> ID {
@@ -59,4 +62,18 @@ pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
     let body = &*iseq.body;
 
     body.location.base_label as VALUE
+}
+
+#[inline]
+pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> String {
+    if RB_TYPE(ruby_str) == ruby_value_type::RUBY_T_STRING {
+        let cstr_ptr = RSTRING_PTR(ruby_str);
+        if !cstr_ptr.is_null() {
+            CStr::from_ptr(cstr_ptr).to_string_lossy().into_owned()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    }
 }
