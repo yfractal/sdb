@@ -212,6 +212,7 @@ unsafe extern "C" fn record_thread_frames(
 extern "C" fn ubf_pull_loop(_: *mut c_void) {
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.stop();
+    stack_scanner.consume_iseq_buffer();
 }
 
 // eBPF only has uptime, this function returns both uptime and clock time for converting
