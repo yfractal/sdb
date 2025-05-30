@@ -18,7 +18,7 @@ use std::ffi::CStr;
 
 use sysinfo::System;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::slice;
 use std::time::Duration;
 use std::{ptr, thread};
@@ -48,7 +48,7 @@ pub struct StackScanner {
     sleep_nanos: u64,
     iseq_logger: IseqLogger,
     pause: bool,
-    iseq_buffer: Vec<u64>,
+    iseq_buffer: HashSet<u64>,
     translated_iseq: HashMap<u64, bool>,
 }
 
@@ -61,7 +61,7 @@ impl StackScanner {
             sleep_nanos: 0,
             iseq_logger: IseqLogger::new(),
             pause: false,
-            iseq_buffer: Vec::new(),
+            iseq_buffer: HashSet::new(),
             translated_iseq: HashMap::new(),
         }
     }
@@ -95,7 +95,7 @@ impl StackScanner {
     #[inline]
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
-            for iseq in self.iseq_buffer.drain(..) {
+            for iseq in self.iseq_buffer.drain() {
                 let iseq_ptr = iseq as usize as *const rb_iseq_struct;
                 let iseq_struct = &*iseq_ptr;
                 let body = &*iseq_struct.body;
@@ -199,7 +199,7 @@ unsafe extern "C" fn record_thread_frames(
         } else {
             // TODO: handle the C functions
             if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
-                stack_scanner.iseq_buffer.push(iseq_addr);
+                stack_scanner.iseq_buffer.insert(iseq_addr);
             }
             stack_scanner.iseq_logger.push(iseq_addr);
         }
