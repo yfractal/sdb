@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil, Qtrue,
+    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, rb_gc_mark, Qnil, Qtrue,
     RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
@@ -89,6 +89,19 @@ impl StackScanner {
     #[inline]
     pub fn is_stopped(&self) -> bool {
         self.should_stop
+    }
+
+    #[inline]
+    pub fn mark_iseqs(&mut self) {
+        unsafe {
+            for iseq in &self.iseq_buffer {
+                rb_gc_mark(*iseq);
+            }
+
+            for (iseq_addr, _) in &self.translated_iseq {
+                rb_gc_mark(*iseq_addr);
+            }
+        }
     }
 
     #[inline]
