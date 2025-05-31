@@ -121,7 +121,7 @@ impl StackScanner {
                 let path_str = ruby_str_to_rust_str(path);
 
                 self.iseq_logger.log(&format!(
-                    "[symbol] {}, {}, {}, {}",
+                    "[symbol] {}, {:?}, {}, {:?}",
                     iseq, label_str, first_lineno, path_str
                 ));
                 self.iseq_logger.flush();

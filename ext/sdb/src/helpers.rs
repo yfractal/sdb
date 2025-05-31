@@ -1,8 +1,8 @@
 use libc::{c_char, c_int, c_long, c_void};
 use rb_sys::{
-    rb_funcallv, rb_intern2, rb_num2long, ruby_value_type, Qnil, ID, RB_TYPE, RSTRING_PTR, VALUE,
+    rb_funcallv, rb_intern2, rb_num2long, ruby_value_type, Qnil, ID, RB_TYPE, RSTRING_PTR, VALUE
 };
-use rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct;
+use rbspy_ruby_structs::ruby_3_1_5::{rb_iseq_struct, RString};
 use std::ffi::CStr;
 
 #[inline]
@@ -64,16 +64,47 @@ pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
     body.location.base_label as VALUE
 }
 
+const MAX_STR_LENGTH: usize = 127;
+const RSTRING_NOEMBED: u64 = 1 << 13;
+
+
 #[inline]
-pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> String {
-    if RB_TYPE(ruby_str) == ruby_value_type::RUBY_T_STRING {
-        let cstr_ptr = RSTRING_PTR(ruby_str);
-        if !cstr_ptr.is_null() {
-            CStr::from_ptr(cstr_ptr).to_string_lossy().into_owned()
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
+pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
+    let str_ptr = ruby_str as *const RString;
+    if str_ptr.is_null() {
+        return None;
     }
+
+    let str_ref = &*str_ptr;
+    let flags = str_ref.basic.flags;
+
+    if flags & RSTRING_NOEMBED as usize != 0 {
+        // Heap string
+        let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
+        let ptr = str_ref.as_.heap.ptr;
+
+        if ptr.is_null() {
+            return None;
+        }
+
+        let bytes = std::slice::from_raw_parts(ptr as *const u8, len);
+        Some(String::from_utf8_lossy(bytes).into_owned())
+    } else {
+        // Embedded string
+        let ary = str_ref.as_.embed.ary.as_ptr();
+        let mut len = 0;
+
+        for i in 0..MAX_STR_LENGTH {
+            if *ary.add(i) == 0 {
+                break;
+            }
+            len += 1;
+        }
+
+        len &= 0x7F;
+
+        let bytes = std::slice::from_raw_parts(ary as *const u8, len);
+        Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
 }
