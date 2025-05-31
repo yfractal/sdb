@@ -1,9 +1,6 @@
 use libc::{c_char, c_int, c_long, c_void};
-use rb_sys::{
-    rb_funcallv, rb_intern2, rb_num2long, ruby_value_type, Qnil, ID, RB_TYPE, RSTRING_PTR, VALUE
-};
+use rb_sys::{rb_funcallv, rb_intern2, rb_num2long, Qnil, ID, VALUE};
 use rbspy_ruby_structs::ruby_3_1_5::{rb_iseq_struct, RString};
-use std::ffi::CStr;
 
 #[inline]
 pub(crate) fn internal_id(string: &str) -> ID {
@@ -67,7 +64,6 @@ pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
 const MAX_STR_LENGTH: usize = 127;
 const RSTRING_NOEMBED: u64 = 1 << 13;
 
-
 #[inline]
 pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
     let str_ptr = ruby_str as *const RString;
@@ -78,10 +74,16 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
     let str_ref = &*str_ptr;
     let flags = str_ref.basic.flags;
 
+    println!("String at {:p}", str_ptr);
+    println!("Flags: 0x{:x}", flags);
+    println!("Is heap: {}", (flags & RSTRING_NOEMBED as usize) != 0);
+
     if flags & RSTRING_NOEMBED as usize != 0 {
         // Heap string
         let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
         let ptr = str_ref.as_.heap.ptr;
+
+        println!("Heap string - len: {}, ptr: {:p}", len, ptr);
 
         if ptr.is_null() {
             return None;
@@ -94,6 +96,8 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
         let ary = str_ref.as_.embed.ary.as_ptr();
         let mut len = 0;
 
+        println!("Embedded string - ary: {:p}", ary);
+
         for i in 0..MAX_STR_LENGTH {
             if *ary.add(i) == 0 {
                 break;
@@ -102,9 +106,9 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
         }
 
         len &= 0x7F;
+        println!("Embedded string - calculated len: {}", len);
 
         let bytes = std::slice::from_raw_parts(ary as *const u8, len);
         Some(String::from_utf8_lossy(bytes).into_owned())
     }
-
 }

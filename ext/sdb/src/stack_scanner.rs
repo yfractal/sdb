@@ -6,8 +6,8 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, rb_gc_mark, Qnil, Qtrue,
-    RTypedData, RARRAY_LEN, VALUE,
+    rb_gc_mark, rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil,
+    Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
@@ -95,11 +95,13 @@ impl StackScanner {
     pub fn mark_iseqs(&mut self) {
         unsafe {
             for iseq in &self.iseq_buffer {
+                log::info!("[gc mark iseq]{:?}", iseq);
                 rb_gc_mark(*iseq);
             }
 
-            for (iseq_addr, _) in &self.translated_iseq {
-                rb_gc_mark(*iseq_addr);
+            for (iseq, _) in &self.translated_iseq {
+                log::info!("[gc mark iseq]{:?}", iseq);
+                rb_gc_mark(*iseq);
             }
         }
     }
@@ -108,24 +110,49 @@ impl StackScanner {
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
             for iseq in self.iseq_buffer.drain() {
+                log::info!("[consume_iseq_buffer iseq]{:?}", iseq);
                 let iseq_ptr = iseq as usize as *const rb_iseq_struct;
-                let iseq_struct = &*iseq_ptr;
+                let iseq_struct: &rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct = &*iseq_ptr;
+                if iseq_struct.body.is_null() {
+                    log::info!("[consume_iseq_buffer iseq]{:?} body is null", iseq);
+                    continue;
+                }
+
                 let body = &*iseq_struct.body;
+                let body_type = body.type_;
+                log::info!(
+                    "iseq: {:?}, flags: {:?}, body_type: {:?}",
+                    iseq,
+                    iseq_struct.flags,
+                    body_type
+                );
+                println!(
+                    "iseq: {:?}, flags: {:?}, body_type: {:?}",
+                    iseq, iseq_struct.flags, body_type
+                );
 
-                let label = body.location.label as VALUE;
-                let label_str = ruby_str_to_rust_str(label);
+                if iseq_struct.flags == 16506 || iseq_struct.flags == 16442 || iseq_struct.flags == 16410 {
+                    self.iseq_logger.log(&format!(
+                        "[symbol][wrong] {}, {:?}, {}, {:?}",
+                        iseq, ".....", 0, "...."
+                    ));
+                } else {
+                    let label = body.location.label as VALUE;
+                    let label_str = ruby_str_to_rust_str(label);
 
-                let first_lineno = body.location.first_lineno;
+                    let first_lineno = body.location.first_lineno;
 
-                let path = body.location.pathobj as VALUE;
-                let path_str = ruby_str_to_rust_str(path);
+                    let path = body.location.pathobj as VALUE;
+                    let path_str = ruby_str_to_rust_str(path);
 
-                self.iseq_logger.log(&format!(
-                    "[symbol] {}, {:?}, {}, {:?}",
-                    iseq, label_str, first_lineno, path_str
-                ));
+                    self.iseq_logger.log(&format!(
+                        "[symbol] {}, {:?}, {}, {:?}",
+                        iseq, label_str, first_lineno, path_str
+                    ));
+                    self.translated_iseq.insert(iseq, true);
+                }
+
                 self.iseq_logger.flush();
-                self.translated_iseq.insert(iseq, true);
             }
         }
     }
