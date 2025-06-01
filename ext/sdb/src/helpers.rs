@@ -83,8 +83,13 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
             None
         } else {
             // len - 1 for removing the last \0
-            let bytes = std::slice::from_raw_parts(ptr as *const u8, len - 1);
-            Some(String::from_utf8_lossy(bytes).into_owned())
+            if *ptr.add(len - 1) == 0 {
+                let bytes = std::slice::from_raw_parts(ptr as *const u8, len - 1);
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            } else {
+                let bytes = std::slice::from_raw_parts(ptr as *const u8, len);
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            }
         }
     } else {
         // Embedded string

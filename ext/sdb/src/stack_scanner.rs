@@ -95,7 +95,6 @@ impl StackScanner {
     pub fn mark_iseqs(&mut self) {
         unsafe {
             for (iseq, _) in &self.translated_iseq {
-                log::info!("[gc mark iseq]{:?}", iseq);
                 rb_gc_mark(*iseq);
             }
         }
@@ -110,8 +109,6 @@ impl StackScanner {
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
             for iseq in self.iseq_buffer.drain() {
-                log::info!("[consume_iseq_buffer iseq]{:?}", iseq);
-
                 let iseq_ptr = iseq as usize as *const rb_iseq_struct;
                 let iseq_struct = &*iseq_ptr;
 
@@ -119,7 +116,6 @@ impl StackScanner {
                 // such as captured->code.ifunc in vm_yield_with_cfunc func,
                 // we do not handle those for now.
                 if !Self::is_iseq_imemo(iseq_struct) {
-                    log::info!("[consume_iseq_buffer iseq]{:?} is not IMEMO_ISEQ", iseq);
                     continue;
                 }
 
@@ -128,14 +124,14 @@ impl StackScanner {
                 let label = body.location.label as VALUE;
                 let label_str = ruby_str_to_rust_str(label);
 
-                let first_lineno = body.location.first_lineno;
-
                 let path = body.location.pathobj as VALUE;
                 let path_str = ruby_str_to_rust_str(path);
 
                 self.iseq_logger.log(&format!(
-                    "[symbol] {}, {:?}, {}, {:?}",
-                    iseq, label_str, first_lineno, path_str
+                    "[symbol] {}, {}, {}",
+                    iseq,
+                    label_str.unwrap_or("".to_string()),
+                    path_str.unwrap_or("".to_string())
                 ));
                 self.translated_iseq.insert(iseq, true);
             }
@@ -273,7 +269,6 @@ unsafe extern "C" fn looping_helper() -> bool {
         let mut stack_scanner = STACK_SCANNER.lock();
         // when acquire the lock, check the scanner has been paused or not
         if stack_scanner.is_paused() {
-            log::debug!("[scanner][main] pause scanner");
             stack_scanner.iseq_logger.flush();
 
             // pause this looping by return, false means pause the scanner

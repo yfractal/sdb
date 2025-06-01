@@ -41,6 +41,6 @@ impl IseqLogger {
 
     #[inline]
     pub fn log(&mut self, str: &str) {
-        log::info!("[iseq-logger]{}", str);
+        log::info!("{}", str);
     }
 }
