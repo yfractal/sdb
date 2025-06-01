@@ -74,16 +74,10 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
     let str_ref = &*str_ptr;
     let flags = str_ref.basic.flags;
 
-    println!("String at {:p}", str_ptr);
-    println!("Flags: 0x{:x}", flags);
-    println!("Is heap: {}", (flags & RSTRING_NOEMBED as usize) != 0);
-
     if flags & RSTRING_NOEMBED as usize != 0 {
         // Heap string
         let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
         let ptr = str_ref.as_.heap.ptr;
-
-        println!("Heap string - len: {}, ptr: {:p}", len, ptr);
 
         if ptr.is_null() {
             return None;
@@ -96,17 +90,12 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
         let ary = str_ref.as_.embed.ary.as_ptr();
         let mut len = 0;
 
-        println!("Embedded string - ary: {:p}", ary);
-
         for i in 0..MAX_STR_LENGTH {
             if *ary.add(i) == 0 {
                 break;
             }
             len += 1;
         }
-
-        len &= 0x7F;
-        println!("Embedded string - calculated len: {}", len);
 
         let bytes = std::slice::from_raw_parts(ary as *const u8, len);
         Some(String::from_utf8_lossy(bytes).into_owned())

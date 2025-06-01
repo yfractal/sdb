@@ -106,54 +106,45 @@ impl StackScanner {
         }
     }
 
+    fn is_iseq_imemo(iseq: &rb_iseq_struct) -> bool {
+        (iseq.flags >> 12) & 0x0F == 7
+    }
+
     #[inline]
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
             for iseq in self.iseq_buffer.drain() {
                 log::info!("[consume_iseq_buffer iseq]{:?}", iseq);
+
                 let iseq_ptr = iseq as usize as *const rb_iseq_struct;
-                let iseq_struct: &rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct = &*iseq_ptr;
-                if iseq_struct.body.is_null() {
-                    log::info!("[consume_iseq_buffer iseq]{:?} body is null", iseq);
+                let iseq_struct = &*iseq_ptr;
+
+                // Ruby VM pushes non-IMEMO_ISEQ iseqs to the frame,
+                // such as captured->code.ifunc in vm_yield_with_cfunc func,
+                // we do not handle those for now.
+                if !Self::is_iseq_imemo(iseq_struct) {
+                    log::info!("[consume_iseq_buffer iseq]{:?} is not IMEMO_ISEQ", iseq);
                     continue;
                 }
 
                 let body = &*iseq_struct.body;
-                let body_type = body.type_;
-                log::info!(
-                    "iseq: {:?}, flags: {:?}, body_type: {:?}",
-                    iseq,
-                    iseq_struct.flags,
-                    body_type
-                );
-                println!(
-                    "iseq: {:?}, flags: {:?}, body_type: {:?}",
-                    iseq, iseq_struct.flags, body_type
-                );
 
-                if iseq_struct.flags == 16506 || iseq_struct.flags == 16442 || iseq_struct.flags == 16410 {
-                    self.iseq_logger.log(&format!(
-                        "[symbol][wrong] {}, {:?}, {}, {:?}",
-                        iseq, ".....", 0, "...."
-                    ));
-                } else {
-                    let label = body.location.label as VALUE;
-                    let label_str = ruby_str_to_rust_str(label);
+                let label = body.location.label as VALUE;
+                let label_str = ruby_str_to_rust_str(label);
 
-                    let first_lineno = body.location.first_lineno;
+                let first_lineno = body.location.first_lineno;
 
-                    let path = body.location.pathobj as VALUE;
-                    let path_str = ruby_str_to_rust_str(path);
+                let path = body.location.pathobj as VALUE;
+                let path_str = ruby_str_to_rust_str(path);
 
-                    self.iseq_logger.log(&format!(
-                        "[symbol] {}, {:?}, {}, {:?}",
-                        iseq, label_str, first_lineno, path_str
-                    ));
-                    self.translated_iseq.insert(iseq, true);
-                }
-
-                self.iseq_logger.flush();
+                self.iseq_logger.log(&format!(
+                    "[symbol] {}, {:?}, {}, {:?}",
+                    iseq, label_str, first_lineno, path_str
+                ));
+                self.translated_iseq.insert(iseq, true);
             }
+
+            self.iseq_logger.flush();
         }
     }
 
@@ -236,8 +227,9 @@ unsafe extern "C" fn record_thread_frames(
         // Iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
-            let cref_or_me = *frame.sp.offset(-3);
-            stack_scanner.iseq_logger.push(cref_or_me as u64);
+            // todo: handle the C function later
+            // let cref_or_me = *frame.sp.offset(-3);
+            // stack_scanner.iseq_logger.push(cref_or_me as u64);
         } else {
             // TODO: handle the C functions
             if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
