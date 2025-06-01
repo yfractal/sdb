@@ -94,11 +94,6 @@ impl StackScanner {
     #[inline]
     pub fn mark_iseqs(&mut self) {
         unsafe {
-            for iseq in &self.iseq_buffer {
-                log::info!("[gc mark iseq]{:?}", iseq);
-                rb_gc_mark(*iseq);
-            }
-
             for (iseq, _) in &self.translated_iseq {
                 log::info!("[gc mark iseq]{:?}", iseq);
                 rb_gc_mark(*iseq);
@@ -106,6 +101,7 @@ impl StackScanner {
         }
     }
 
+    // see static inline enum imemo_type imemo_type(VALUE imemo)
     fn is_iseq_imemo(iseq: &rb_iseq_struct) -> bool {
         (iseq.flags >> 12) & 0x0F == 7
     }

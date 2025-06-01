@@ -79,12 +79,13 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
         let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
         let ptr = str_ref.as_.heap.ptr;
 
-        if ptr.is_null() {
-            return None;
+        if ptr.is_null() || len == 0 {
+            None
+        } else {
+            // len - 1 for removing the last \0
+            let bytes = std::slice::from_raw_parts(ptr as *const u8, len - 1);
+            Some(String::from_utf8_lossy(bytes).into_owned())
         }
-
-        let bytes = std::slice::from_raw_parts(ptr as *const u8, len);
-        Some(String::from_utf8_lossy(bytes).into_owned())
     } else {
         // Embedded string
         let ary = str_ref.as_.embed.ary.as_ptr();
