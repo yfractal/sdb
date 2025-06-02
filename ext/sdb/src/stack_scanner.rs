@@ -264,8 +264,6 @@ unsafe extern "C" fn looping_helper() -> bool {
         let mut stack_scanner = STACK_SCANNER.lock();
         // when acquire the lock, check the scanner has been paused or not
         if stack_scanner.is_paused() {
-            stack_scanner.iseq_logger.flush();
-
             // pause this looping by return, false means pause the scanner
             return false;
         }
