@@ -2,6 +2,12 @@ use libc::{c_char, c_int, c_long, c_void};
 use rb_sys::{rb_funcallv, rb_intern2, rb_num2long, Qnil, ID, VALUE};
 use rbspy_ruby_structs::ruby_3_1_5::{rb_iseq_struct, RString};
 
+const MAX_STR_LENGTH: usize = 127;
+const RSTRING_HEAP_FLAGS: usize = 1 << 13;
+const FL_USHIFT: usize = 12;
+const IMEMO_MASK: usize = 0x0F;
+const IMEMO_ISEQ: usize = 7;
+
 #[inline]
 pub(crate) fn internal_id(string: &str) -> ID {
     let str = string.as_ptr() as *const c_char;
@@ -61,9 +67,6 @@ pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
     body.location.base_label as VALUE
 }
 
-const MAX_STR_LENGTH: usize = 127;
-const RSTRING_NOEMBED: u64 = 1 << 13;
-
 #[inline]
 pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
     let str_ptr = ruby_str as *const RString;
@@ -74,7 +77,7 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
     let str_ref = &*str_ptr;
     let flags = str_ref.basic.flags;
 
-    if flags & RSTRING_NOEMBED as usize != 0 {
+    if flags & RSTRING_HEAP_FLAGS != 0 {
         // Heap string
         let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
         let ptr = str_ref.as_.heap.ptr;
@@ -106,4 +109,10 @@ pub(crate) unsafe fn ruby_str_to_rust_str(ruby_str: VALUE) -> Option<String> {
         let bytes = std::slice::from_raw_parts(ary as *const u8, len);
         Some(String::from_utf8_lossy(bytes).into_owned())
     }
+}
+
+// see `static inline enum imemo_type imemo_type(VALUE imemo)` func in Ruby
+#[inline]
+pub(crate) fn is_iseq_imemo(iseq: &rb_iseq_struct) -> bool {
+    (iseq.flags >> FL_USHIFT) & IMEMO_MASK == IMEMO_ISEQ
 }

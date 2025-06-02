@@ -100,11 +100,6 @@ impl StackScanner {
         }
     }
 
-    // see static inline enum imemo_type imemo_type(VALUE imemo)
-    fn is_iseq_imemo(iseq: &rb_iseq_struct) -> bool {
-        (iseq.flags >> 12) & 0x0F == 7
-    }
-
     #[inline]
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
@@ -115,7 +110,7 @@ impl StackScanner {
                 // Ruby VM pushes non-IMEMO_ISEQ iseqs to the frame,
                 // such as captured->code.ifunc in vm_yield_with_cfunc func,
                 // we do not handle those for now.
-                if !Self::is_iseq_imemo(iseq_struct) {
+                if !is_iseq_imemo(iseq_struct) {
                     continue;
                 }
 
