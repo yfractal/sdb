@@ -6,8 +6,8 @@ use std::sync::atomic::AtomicU64;
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil, Qtrue,
-    RTypedData, RARRAY_LEN, VALUE,
+    rb_gc_mark, rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil,
+    Qtrue, RTypedData, RARRAY_LEN, VALUE,
 };
 use rbspy_ruby_structs::ruby_3_1_5::{
     rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
@@ -92,28 +92,46 @@ impl StackScanner {
     }
 
     #[inline]
+    pub fn mark_iseqs(&mut self) {
+        unsafe {
+            for (iseq, _) in &self.translated_iseq {
+                rb_gc_mark(*iseq);
+            }
+        }
+    }
+
+    #[inline]
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
             for iseq in self.iseq_buffer.drain() {
                 let iseq_ptr = iseq as usize as *const rb_iseq_struct;
                 let iseq_struct = &*iseq_ptr;
+
+                // Ruby VM pushes non-IMEMO_ISEQ iseqs to the frame,
+                // such as captured->code.ifunc in vm_yield_with_cfunc func,
+                // we do not handle those for now.
+                if !is_iseq_imemo(iseq_struct) {
+                    continue;
+                }
+
                 let body = &*iseq_struct.body;
 
                 let label = body.location.label as VALUE;
                 let label_str = ruby_str_to_rust_str(label);
 
-                let first_lineno = body.location.first_lineno;
-
                 let path = body.location.pathobj as VALUE;
                 let path_str = ruby_str_to_rust_str(path);
 
                 self.iseq_logger.log(&format!(
-                    "[symbol] {}, {}, {}, {}",
-                    iseq, label_str, first_lineno, path_str
+                    "[symbol] {}, {}, {}",
+                    iseq,
+                    label_str.unwrap_or("".to_string()),
+                    path_str.unwrap_or("".to_string())
                 ));
-                self.iseq_logger.flush();
                 self.translated_iseq.insert(iseq, true);
             }
+
+            self.iseq_logger.flush();
         }
     }
 
@@ -196,8 +214,9 @@ unsafe extern "C" fn record_thread_frames(
         // Iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
         // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
         if iseq_addr == 0 {
-            let cref_or_me = *frame.sp.offset(-3);
-            stack_scanner.iseq_logger.push(cref_or_me as u64);
+            // todo: handle the C function later
+            // let cref_or_me = *frame.sp.offset(-3);
+            // stack_scanner.iseq_logger.push(cref_or_me as u64);
         } else {
             // TODO: handle the C functions
             if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
@@ -245,7 +264,6 @@ unsafe extern "C" fn looping_helper() -> bool {
         let mut stack_scanner = STACK_SCANNER.lock();
         // when acquire the lock, check the scanner has been paused or not
         if stack_scanner.is_paused() {
-            log::debug!("[scanner][main] pause scanner");
             stack_scanner.iseq_logger.flush();
 
             // pause this looping by return, false means pause the scanner

@@ -35,6 +35,7 @@ extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.pause();
     stack_scanner.consume_iseq_buffer();
+    stack_scanner.mark_iseqs();
 
     let (lock, _) = &*START_TO_PULL_COND_VAR;
     let mut start = lock.lock().unwrap();
@@ -50,7 +51,6 @@ unsafe extern "C" fn gc_exist_callback(_trace_point: VALUE, _data: *mut c_void) 
     let mut stack_scanner = STACK_SCANNER.lock();
 
     if stack_scanner.is_paused() {
-        log::debug!("[gc-hook][exist] resume the scanner");
         let (lock, cvar) = &*START_TO_PULL_COND_VAR;
         let mut start = lock.lock().unwrap();
         stack_scanner.resume();

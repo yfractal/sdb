@@ -51,24 +51,19 @@ module Sdb
     end
 
     def thread_created(thread)
-      puts "thread_created called: @active_threads_count=#{@active_threads.count} @active_threads=#{@active_threads}"
-
       @lock.synchronize do
         @active_threads << thread
         threads_to_scan = @active_threads.filter(&@filter).to_a
 
-        puts "thread_created: threads_to_scan_count=#{threads_to_scan.count} threads_to_scan=#{threads_to_scan}"
         self.update_threads_to_scan(threads_to_scan)
       end
     end
 
     def thread_deleted(thread)
       @lock.synchronize do
-        puts "thread_deleted: @active_threads_count=#{@active_threads.count} @active_threads=#{@active_threads}"
         @active_threads.delete(thread)
         threads_to_scan = @active_threads.filter(&@filter).to_a
 
-        puts "thread_deleted: threads_to_scan=#{threads_to_scan}"
         self.update_threads_to_scan(threads_to_scan)
       end
     end
