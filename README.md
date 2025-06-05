@@ -4,7 +4,7 @@
 SDB provides high-accuracy stack profiling for Ruby applications. It can profile Ruby at **microsecond (0.000001 second)** intervals and offers event tagging for requests.
 
 # Why Do We Need Another Stack Profiler?
-1. Minimal Impact: SDB does not affect the target application’s performance.
+1. Minimal Impact: SDB does not affect the target application's performance.
 2. Event Tagging: SDB supports event tagging, making it easier to trace and identify slow functions.
 3. High Accuracy: SDB offers precision down to microseconds.
 
@@ -16,16 +16,11 @@ Event tagging, such as adding trace_id for Puma requests, makes it easier to ide
 
 Moreover, SDB can precisely identify delays, down to a single microsecond.
 
-# How it works
-<img width="634" alt="Screenshot 2024-10-31 at 13 58 55" src="https://github.com/user-attachments/assets/66e8e876-a19f-44f0-8b59-955a69cc3cc3">
+# How it Works
+<img width="771" alt="Image" src="https://github.com/user-attachments/assets/46df7072-ce9f-4e7c-8b4a-d7fbdaddf774" />
 
-Unlike other Ruby stack profilers, SDB doesn't acquire GVL. It only scans stacks, which are then collected into a buffer and written to the log.
-
-As the stack scanner only gathers function addresses, the symbolizer is used for gathering human-readable information, such as function names, files, etc. To achieve this, the symbolizer instruments several Ruby VM methods, such as `rb_iseq_new_with_opt` through eBPF.
-
-SDB adds event tags for categorizing the stacks and the analyzer combines all those logs for us.
-
-
+The stack scanner scans the Ruby stacks without the GVL as reading an Iseq address is atomic.
+The symbolizer translates Iseq into function name and path and it "caches" the translation result for avoiding repeat work to achieve better performance. As it "caches" the translation result, it marks the Iseq address at each beginning of GC for avoiding incorrect results -- an Iseq has been reclaimed and the address is used by a new Iseq.
 
 # Usage Example
 ![roda](https://github.com/yfractal/sdb-analyzer/blob/main/images/roda.png)
