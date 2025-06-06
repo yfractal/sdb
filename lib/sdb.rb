@@ -7,13 +7,15 @@ require_relative "sdb/thread_patch"
 
 module Sdb
   class << self
+    attr_reader :scanning_thread
+
     def init
       raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
-      self.init_logger
       self.log_uptime_and_clock_time
       @initialized = true
       @active_threads = []
       @lock = Mutex.new
+      @scan_config = nil
       self.setup_gc_hooks
     end
 
@@ -30,13 +32,16 @@ module Sdb
     end
 
     def start_scan_helper(sleep_interval, &filter)
-      @filter = filter
-      @sleep_interval = sleep_interval
-      threads_to_scan = @active_threads.filter(&@filter).to_a
-      self.update_threads_to_scan(threads_to_scan)
+      @scan_config = { sleep_interval: sleep_interval, filter: filter }
 
-      Thread.new do
-        self.pull(@sleep_interval)
+      # Don't start thread in master process
+      if puma_detected? && puma_worker_mode?
+        Puma.cli_config.options[:before_worker_boot] ||= []
+        Puma.cli_config.options[:before_worker_boot] << proc {
+          Sdb.worker_forked!
+        }
+      else
+        start_scanning
       end
     end
 
@@ -44,7 +49,7 @@ module Sdb
       start_scan_helper(sleep_interval) { true }
     end
 
-    def start_puma_threads(sleep_interval = 0.001)
+    def scan_puma_threads(sleep_interval = 0.001)
       start_scan_helper(sleep_interval) do |thread|
         thread.name&.include?('puma srv tp')
       end
@@ -53,18 +58,49 @@ module Sdb
     def thread_created(thread)
       @lock.synchronize do
         @active_threads << thread
-        threads_to_scan = @active_threads.filter(&@filter).to_a
-
-        self.update_threads_to_scan(threads_to_scan)
+        if @scan_config[:filter]
+          threads_to_scan = @active_threads.filter(&@scan_config[:filter]).to_a
+          self.update_threads_to_scan(threads_to_scan)
+        end
       end
     end
 
     def thread_deleted(thread)
       @lock.synchronize do
         @active_threads.delete(thread)
-        threads_to_scan = @active_threads.filter(&@filter).to_a
+        if @scan_config[:filter]
+          threads_to_scan = @active_threads.filter(&@scan_config[:filter]).to_a
+          self.update_threads_to_scan(threads_to_scan)
+        end
+      end
+    end
 
+    def worker_forked!
+      start_scanning if @scan_config
+    end
+
+    private
+
+    def puma_detected?
+      defined?(Puma) && (defined?(Puma::Server) || defined?(Puma::Cluster))
+    end
+
+    def puma_worker_mode?
+      Puma.respond_to?(:cli_config) && Puma.cli_config.options[:workers].to_i > 0
+    end
+
+    def start_scanning
+      self.init_logger
+
+      @lock.synchronize do
+        threads_to_scan = @active_threads.filter(&@scan_config[:filter]).to_a
         self.update_threads_to_scan(threads_to_scan)
+      end
+
+      Thread.new do
+        Thread.current.name = "sdb-scanner-#{Process.pid}"
+
+        self.pull(@scan_config[:sleep_interval])
       end
     end
   end
