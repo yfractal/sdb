@@ -21,7 +21,7 @@ impl IseqLogger {
             self.buffer[self.buffer_index] = item;
             self.buffer_index += 1;
         } else {
-            log::info!("[stack_frames]{:?}", self.buffer);
+            log::info!("[{}][stack_frames]{:?}", std::process::id(), self.buffer);
             self.buffer_index = 0;
         }
     }
@@ -34,13 +34,17 @@ impl IseqLogger {
 
     #[inline]
     pub fn flush(&mut self) {
-        log::info!("[stack_frames]{:?}", &self.buffer[..self.buffer_index]);
+        log::info!(
+            "[{}][stack_frames]{:?}",
+            std::process::id(),
+            &self.buffer[..self.buffer_index]
+        );
         self.buffer_index = 0;
         log::logger().flush();
     }
 
     #[inline]
     pub fn log(&mut self, str: &str) {
-        log::info!("{}", str);
+        log::info!("[{}]{}", std::process::id(), str);
     }
 }

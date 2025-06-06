@@ -7,8 +7,6 @@ require_relative "sdb/thread_patch"
 
 module Sdb
   class << self
-    attr_reader :scanning_thread
-
     def init
       raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
       self.log_uptime_and_clock_time
@@ -45,7 +43,7 @@ module Sdb
         config.options[:before_worker_shutdown] ||= []
         config.options[:before_worker_shutdown] << proc {
           Sdb.stop_scanner
-          @scanning_thread.join # wait scanner finishes its work
+          @scanner_thread.join # wait scanner finishes its work
         }
       else
         start_scanning
@@ -104,7 +102,7 @@ module Sdb
         self.update_threads_to_scan(threads_to_scan)
       end
 
-      @scanning_thread = Thread.new do
+      @scanner_thread = Thread.new do
         Thread.current.name = "sdb-scanner-#{Process.pid}"
 
         self.pull(@scan_config[:sleep_interval])
