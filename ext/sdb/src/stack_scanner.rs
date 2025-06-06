@@ -374,6 +374,13 @@ pub(crate) unsafe extern "C" fn rb_update_threads_to_scan(
     return Qnil as VALUE;
 }
 
+pub(crate) unsafe extern "C" fn rb_stop_scanner(_module: VALUE) -> VALUE {
+    let mut stack_scanner = STACK_SCANNER.lock();
+    stack_scanner.stop();
+
+    return Qnil as VALUE;
+}
+
 // for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,

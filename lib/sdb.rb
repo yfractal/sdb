@@ -36,9 +36,16 @@ module Sdb
 
       # Don't start thread in master process
       if puma_detected? && puma_worker_mode?
-        Puma.cli_config.options[:before_worker_boot] ||= []
-        Puma.cli_config.options[:before_worker_boot] << proc {
+        config = Puma.cli_config
+        config.options[:before_worker_boot] ||= []
+        config.options[:before_worker_boot] << proc {
           Sdb.worker_forked!
+        }
+
+        config.options[:before_worker_shutdown] ||= []
+        config.options[:before_worker_shutdown] << proc {
+          Sdb.stop_scanner
+          @scanning_thread.join # wait scanner finishes its work
         }
       else
         start_scanning
@@ -97,7 +104,7 @@ module Sdb
         self.update_threads_to_scan(threads_to_scan)
       end
 
-      Thread.new do
+      @scanning_thread = Thread.new do
         Thread.current.name = "sdb-scanner-#{Process.pid}"
 
         self.pull(@scan_config[:sleep_interval])
