@@ -33,6 +33,7 @@ Gem::Specification.new do |spec|
   # spec.add_dependency "example-gem", "~> 1.0"
   spec.add_dependency 'cpu_time'
   spec.add_development_dependency 'byebug'
+  spec.add_runtime_dependency 'puma', '>= 6.0'
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html

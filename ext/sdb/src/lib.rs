@@ -196,6 +196,17 @@ extern "C" fn Init_sdb() {
             1,
         );
 
+        let rb_stop_scanner_callback = std::mem::transmute::<
+            unsafe extern "C" fn(VALUE) -> VALUE,
+            unsafe extern "C" fn() -> VALUE,
+        >(rb_stop_scanner);
+        rb_define_singleton_method(
+            module,
+            "stop_scanner\0".as_ptr() as _,
+            Some(rb_stop_scanner_callback),
+            0,
+        );
+
         let setup_gc_hook_callback = std::mem::transmute::<
             unsafe extern "C" fn(VALUE) -> VALUE,
             unsafe extern "C" fn() -> VALUE,
