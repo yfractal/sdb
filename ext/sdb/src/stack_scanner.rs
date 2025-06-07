@@ -146,7 +146,6 @@ impl StackScanner {
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-#[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     ec_val: VALUE,
@@ -156,14 +155,21 @@ unsafe extern "C" fn record_thread_frames(
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
-    RUBY_API.record_thread_frames(
-        thread_val,
-        ec_val,
-        trace_id,
-        ts as u64,
-        &mut stack_scanner.iseq_logger,
-        &mut stack_scanner.iseq_buffer,
-    );
+    stack_scanner.iseq_logger.push(trace_id);
+    stack_scanner.iseq_logger.push(ts as u64);
+
+    // Use the new closure-based API
+    let mut frame_handler = |iseq_addr: u64| {
+        if iseq_addr == 0 {
+            return;
+        } else {
+            stack_scanner.iseq_buffer.insert(iseq_addr);
+            stack_scanner.iseq_logger.push(iseq_addr);
+        }
+    };
+
+    RUBY_API.iterate_frame_iseqs(ec_val, &mut frame_handler);
+    stack_scanner.iseq_logger.push_seperator();
 
     true
 }
@@ -322,15 +328,9 @@ pub(crate) unsafe extern "C" fn rb_stop_scanner(_module: VALUE) -> VALUE {
 // for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,
-    thread_val: VALUE,
+    _thread_val: VALUE,
 ) -> VALUE {
-    // This needs to be updated to use the new API as well
-    // For now, keeping a simplified version
-    let ary = rb_sys::rb_ary_new_capa(0);
-
     // TODO: Implement using the new RubyAPI
-    // let (frames_ptr, len) = get_control_frame_slice2(thread_val);
-    // Process frames using the API...
-
+    let ary = rb_sys::rb_ary_new_capa(0);
     ary
 }

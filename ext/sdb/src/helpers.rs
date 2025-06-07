@@ -15,7 +15,6 @@ pub(crate) fn call_method(receiver: VALUE, method: &str, argc: c_int, argv: &[VA
     unsafe { rb_funcallv(receiver, id, argc, argv as *const [VALUE] as *const VALUE) }
 }
 
-// Version-specific implementations now use the global RUBY_API
 pub(crate) unsafe extern "C" fn rb_first_lineno_from_iseq_addr(
     _module: VALUE,
     iseq_addr: VALUE,
