@@ -8,7 +8,13 @@ require_relative "sdb/thread_patch"
 module Sdb
   class << self
     def init
-      raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
+      supported_versions = ['3.1.5', '3.2.0', '3.2.1', '3.2.2', '3.3.0', '3.3.1']
+      current_version = RUBY_VERSION
+      
+      unless supported_versions.any? { |v| current_version.start_with?(v.split('.')[0..1].join('.')) }
+        raise "Unsupported ruby version: #{RUBY_VERSION}. Supported versions: #{supported_versions.join(', ')}"
+      end
+      
       self.log_uptime_and_clock_time
       @initialized = true
       @active_threads = []

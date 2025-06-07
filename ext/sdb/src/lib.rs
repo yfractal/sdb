@@ -2,6 +2,7 @@ mod gvl;
 mod helpers;
 mod iseq_logger;
 mod logger;
+mod ruby_version;
 mod stack_scanner;
 mod trace_id;
 
