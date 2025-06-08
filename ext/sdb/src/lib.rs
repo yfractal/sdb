@@ -4,6 +4,7 @@ mod iseq_logger;
 mod logger;
 mod ruby_version;
 mod stack_scanner;
+mod tester;
 mod trace_id;
 
 use libc::c_char;
@@ -17,6 +18,7 @@ use helpers::*;
 use logger::*;
 use stack_scanner::*;
 use std::os::raw::c_void;
+use tester::*;
 use trace_id::*;
 
 use lazy_static::lazy_static;
@@ -134,14 +136,42 @@ extern "C" fn Init_sdb() {
         define_ruby_method!(module, "pull", rb_pull, 1);
         define_ruby_method!(module, "set_trace_id", rb_set_trace_id, 2);
         define_ruby_method!(module, "log_gvl_addr_for_thread", rb_log_gvl_addr, 1);
-        define_ruby_method!(module, "on_stack_func_addresses", rb_get_on_stack_func_addresses, 1);
-        define_ruby_method!(module, "first_lineno_from_iseq_addr", rb_first_lineno_from_iseq_addr, 1);
+        define_ruby_method!(
+            module,
+            "on_stack_func_addresses",
+            rb_get_on_stack_func_addresses,
+            1
+        );
+        define_ruby_method!(
+            module,
+            "first_lineno_from_iseq_addr",
+            rb_first_lineno_from_iseq_addr,
+            1
+        );
         define_ruby_method!(module, "label_from_iseq_addr", rb_label_from_iseq_addr, 1);
-        define_ruby_method!(module, "base_label_from_iseq_addr", rb_base_label_from_iseq_addr, 1);
+        define_ruby_method!(
+            module,
+            "base_label_from_iseq_addr",
+            rb_base_label_from_iseq_addr,
+            1
+        );
         define_ruby_method!(module, "init_logger", rb_init_logger, 0);
-        define_ruby_method!(module, "log_uptime_and_clock_time", rb_log_uptime_and_clock_time, 0);
-        define_ruby_method!(module, "update_threads_to_scan", rb_update_threads_to_scan, 1);
+        define_ruby_method!(
+            module,
+            "log_uptime_and_clock_time",
+            rb_log_uptime_and_clock_time,
+            0
+        );
+        define_ruby_method!(
+            module,
+            "update_threads_to_scan",
+            rb_update_threads_to_scan,
+            1
+        );
         define_ruby_method!(module, "stop_scanner", rb_stop_scanner, 0);
         define_ruby_method!(module, "setup_gc_hooks", setup_gc_hooks, 0);
+
+        let sdb_tester = rb_define_module("SdbTester\0".as_ptr() as *const c_char);
+        define_ruby_method!(sdb_tester, "ec_from_thread", rb_get_ec_from_thread, 1);
     }
 }

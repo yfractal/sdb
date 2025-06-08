@@ -19,7 +19,7 @@ module Sdb
       @initialized = true
       @active_threads = []
       @lock = Mutex.new
-      @scan_config = nil
+      @scan_config = {}
       self.setup_gc_hooks
     end
 
