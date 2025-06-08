@@ -8,12 +8,19 @@ require_relative "sdb/thread_patch"
 module Sdb
   class << self
     def init
-      raise "Unsupported ruby version: #{RUBY_VERSION}" if RUBY_VERSION != '3.1.5'
+      current_version = Gem::Version.new(RUBY_VERSION)
+      min_version = Gem::Version.new('3.1.0')
+      max_version = Gem::Version.new('3.4.4')
+      
+      unless current_version >= min_version && current_version <= max_version
+        raise "Unsupported ruby version: #{RUBY_VERSION}. Supported versions: > 3.1.0 and <= 3.4.4"
+      end
+      
       self.log_uptime_and_clock_time
       @initialized = true
       @active_threads = []
       @lock = Mutex.new
-      @scan_config = nil
+      @scan_config = {}
       self.setup_gc_hooks
     end
 

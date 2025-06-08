@@ -1,24 +1,19 @@
 use crate::helpers::*;
 use crate::iseq_logger::*;
+use crate::ruby_version::*;
 use crate::trace_id::*;
 use std::sync::atomic::AtomicU64;
 
 use chrono::Utc;
 use libc::c_void;
 use rb_sys::{
-    rb_gc_mark, rb_int2inum, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil,
-    Qtrue, RTypedData, RARRAY_LEN, VALUE,
+    rb_gc_mark, rb_num2dbl, rb_thread_call_with_gvl, rb_thread_call_without_gvl, Qnil, Qtrue,
+    RARRAY_LEN, VALUE,
 };
-use rbspy_ruby_structs::ruby_3_1_5::{
-    rb_control_frame_struct, rb_execution_context_struct, rb_iseq_struct, rb_thread_t,
-};
-
-// use rbspy_ruby_structs::ruby_3_3_1::{rb_control_frame_struct, rb_thread_t};
 
 use sysinfo::System;
 
 use std::collections::{HashMap, HashSet};
-use std::slice;
 use std::time::Duration;
 use std::{ptr, thread};
 
@@ -28,7 +23,6 @@ use std::sync;
 use std::sync::Condvar;
 
 const ONE_MILLISECOND_NS: u64 = 1_000_000; // 1ms in nanoseconds
-const CONTROL_FRAME_STRUCT_SIZE: usize = std::mem::size_of::<rb_control_frame_struct>();
 
 lazy_static! {
     // For using raw mutex in Ruby, we need to release GVL before acquiring the lock.
@@ -38,6 +32,7 @@ lazy_static! {
     // So, I think it is good choice to use spinlock here
     pub static ref STACK_SCANNER: Mutex<StackScanner> = Mutex::new(StackScanner::new());
     pub static ref START_TO_PULL_COND_VAR: (sync::Mutex<bool>, Condvar) = (sync::Mutex::new(true), Condvar::new());
+    pub static ref RUBY_API: RubyAPI = RubyAPI::new(detect_ruby_version());
 }
 
 pub struct StackScanner {
@@ -104,23 +99,16 @@ impl StackScanner {
     pub fn consume_iseq_buffer(&mut self) {
         unsafe {
             for iseq in self.iseq_buffer.drain() {
-                let iseq_ptr = iseq as usize as *const rb_iseq_struct;
-                let iseq_struct = &*iseq_ptr;
+                let iseq_ptr = iseq as usize as *const c_void;
 
                 // Ruby VM pushes non-IMEMO_ISEQ iseqs to the frame,
                 // such as captured->code.ifunc in vm_yield_with_cfunc func,
                 // we do not handle those for now.
-                if !is_iseq_imemo(iseq_struct) {
+                if !RUBY_API.is_iseq_imemo(iseq_ptr) {
                     continue;
                 }
 
-                let body = &*iseq_struct.body;
-
-                let label = body.location.label as VALUE;
-                let label_str = ruby_str_to_rust_str(label);
-
-                let path = body.location.pathobj as VALUE;
-                let path_str = ruby_str_to_rust_str(path);
+                let (label_str, path_str) = RUBY_API.get_iseq_info(iseq);
 
                 self.iseq_logger.log(&format!(
                     "[symbol] {}, {}, {}",
@@ -145,14 +133,9 @@ impl StackScanner {
         while i < threads_count {
             let thread = rb_sys::rb_ary_entry(threads_to_scan, i as i64);
 
-            if thread != current_thread && thread != Qnil.into() {
+            if thread != current_thread && thread != (Qnil as VALUE) {
                 self.threads.push(thread);
-
-                let thread_ptr: *mut RTypedData = thread as *mut RTypedData;
-                let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
-                let thread = *thread_struct_ptr;
-                let ec = thread.ec;
-
+                let ec = RUBY_API.get_ec_from_thread(thread);
                 self.ecs.push(ec as VALUE);
             }
 
@@ -163,70 +146,31 @@ impl StackScanner {
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-unsafe fn get_control_frame_slice(thread_val: VALUE) -> &'static [rb_control_frame_struct] {
-    // todo: get the ec before the loop
-    let thread_ptr: *mut RTypedData = thread_val as *mut RTypedData;
-    let thread_struct_ptr: *mut rb_thread_t = (*thread_ptr).data as *mut rb_thread_t;
-    let thread = *thread_struct_ptr;
-    let ec = *thread.ec;
-
-    let stack_base = ec.vm_stack.add(ec.vm_stack_size);
-    let diff = (stack_base as usize) - (ec.cfp as usize);
-    // todo: pass rb_control_frame_struct size in
-    let len = diff / CONTROL_FRAME_STRUCT_SIZE;
-
-    slice::from_raw_parts(ec.cfp, len)
-}
-
-#[inline]
-// Caller needs to guarantee the thread is alive until the end of this function
-unsafe fn get_control_frame_slice2(ec_val: VALUE) -> &'static [rb_control_frame_struct] {
-    let ec = *(ec_val as *mut rb_execution_context_struct);
-
-    let stack_base = ec.vm_stack.add(ec.vm_stack_size);
-    let diff = (stack_base as usize) - (ec.cfp as usize);
-    // todo: pass rb_control_frame_struct size in
-    let len = diff / std::mem::size_of::<rb_control_frame_struct>();
-
-    slice::from_raw_parts(ec.cfp, len)
-}
-
-#[inline]
 unsafe extern "C" fn record_thread_frames(
     thread_val: VALUE,
     ec_val: VALUE,
     trace_table: &HashMap<u64, AtomicU64>,
     stack_scanner: &mut StackScanner,
 ) -> bool {
-    let frames = get_control_frame_slice2(ec_val);
-
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
     stack_scanner.iseq_logger.push(trace_id);
     stack_scanner.iseq_logger.push(ts as u64);
 
-    for frame in frames {
-        let iseq = &*frame.iseq;
-
-        let iseq_addr = iseq as *const _ as u64;
-
-        // Iseq is 0 when it is a cframe, see vm_call_cfunc_with_frame.
-        // Ruby saves rb_callable_method_entry_t on its stack through sp pointer and we can get relative info through the rb_callable_method_entry_t.
+    // Use the new closure-based API
+    let mut frame_handler = |iseq_addr: u64| {
         if iseq_addr == 0 {
-            // todo: handle the C function later
-            // let cref_or_me = *frame.sp.offset(-3);
-            // stack_scanner.iseq_logger.push(cref_or_me as u64);
+            return;
         } else {
-            // TODO: handle the C functions
-            if !stack_scanner.translated_iseq.contains_key(&iseq_addr) {
-                stack_scanner.iseq_buffer.insert(iseq_addr);
-            }
+            stack_scanner.iseq_buffer.insert(iseq_addr);
             stack_scanner.iseq_logger.push(iseq_addr);
         }
-    }
+    };
 
+    RUBY_API.iterate_frame_iseqs(ec_val, &mut frame_handler);
     stack_scanner.iseq_logger.push_seperator();
+
     true
 }
 
@@ -384,30 +328,9 @@ pub(crate) unsafe extern "C" fn rb_stop_scanner(_module: VALUE) -> VALUE {
 // for testing
 pub(crate) unsafe extern "C" fn rb_get_on_stack_func_addresses(
     _module: VALUE,
-    thread_val: VALUE,
+    _thread_val: VALUE,
 ) -> VALUE {
-    let frames = get_control_frame_slice(thread_val);
-
-    let ary = rb_sys::rb_ary_new_capa(frames.len() as i64);
-
-    for frame in frames {
-        // Access frame fields through pointer dereference since it's a C struct
-        let frame_ptr = frame as *const rb_control_frame_struct;
-        let iseq = unsafe { (*frame_ptr).iseq };
-
-        if iseq.is_null() {
-            // Handle C frames
-            let sp = unsafe { (*frame_ptr).sp };
-            if !sp.is_null() {
-                let cref_or_me = unsafe { *sp.offset(-3) };
-                rb_sys::rb_ary_push(ary, rb_int2inum(cref_or_me as isize));
-            }
-            continue;
-        }
-
-        let iseq_struct = unsafe { &*iseq };
-        rb_sys::rb_ary_push(ary, rb_int2inum(iseq_struct as *const _ as isize));
-    }
-
+    // TODO: Implement using the new RubyAPI
+    let ary = rb_sys::rb_ary_new_capa(0);
     ary
 }
