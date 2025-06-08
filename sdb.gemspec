@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary = "High-accuracy stack profiling for Ruby."
   spec.description = "High-accuracy stack profiling for Ruby."
   spec.required_ruby_version = ">= 3.0.0"
-  spec.required_rubygems_version = ">= 3.3.11"
+  spec.required_rubygems_version = ">= 3.3.3"
 
   spec.metadata["source_code_uri"] = "https://github.com/yfractal/sdb"
 

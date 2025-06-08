@@ -21,6 +21,7 @@ macro_rules! impl_ruby_str_to_rust_str {
             let flags = str_ref.basic.flags;
 
             if flags & RSTRING_HEAP_FLAGS != 0 {
+                println!("Heap string");
                 // Heap string
                 let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
                 let ptr = str_ref.as_.heap.ptr;
@@ -38,6 +39,7 @@ macro_rules! impl_ruby_str_to_rust_str {
                     }
                 }
             } else {
+                println!("Embedded string");
                 // Embedded string
                 let ary = str_ref.as_.embed.ary.as_ptr();
                 let mut len = 0;
