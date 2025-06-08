@@ -186,6 +186,13 @@ pub enum RubyVersion {
     Ruby336,
     Ruby337,
     Ruby338,
+
+    // Ruby 3.4.x
+    Ruby340,
+    Ruby341,
+    Ruby342,
+    Ruby343,
+    Ruby344,
 }
 
 pub trait RubyApiCompat: Send + Sync {
@@ -285,6 +292,23 @@ macro_rules! impl_ruby_version {
     (Ruby338) => {
         impl_ruby_version_with_module!(Ruby338, ruby_3_3_8);
     };
+
+    // Ruby 3.4.x
+    (Ruby340) => {
+        impl_ruby_version_with_module!(Ruby340, ruby_3_4_0);
+    };
+    (Ruby341) => {
+        impl_ruby_version_with_module!(Ruby341, ruby_3_4_1);
+    };
+    (Ruby342) => {
+        impl_ruby_version_with_module!(Ruby342, ruby_3_4_2);
+    };
+    (Ruby343) => {
+        impl_ruby_version_with_module!(Ruby343, ruby_3_4_3);
+    };
+    (Ruby344) => {
+        impl_ruby_version_with_module!(Ruby344, ruby_3_4_4);
+    };
 }
 
 // Helper macro that does the actual implementation
@@ -336,6 +360,13 @@ impl_ruby_version!(Ruby336);
 impl_ruby_version!(Ruby337);
 impl_ruby_version!(Ruby338);
 
+// Ruby 3.4.x implementations
+impl_ruby_version!(Ruby340);
+impl_ruby_version!(Ruby341);
+impl_ruby_version!(Ruby342);
+impl_ruby_version!(Ruby343);
+impl_ruby_version!(Ruby344);
+
 // Main API struct
 pub struct RubyAPI {
     inner: Box<dyn RubyApiCompat>,
@@ -375,6 +406,13 @@ impl RubyAPI {
             RubyVersion::Ruby336 => Box::new(Ruby336),
             RubyVersion::Ruby337 => Box::new(Ruby337),
             RubyVersion::Ruby338 => Box::new(Ruby338),
+
+            // Ruby 3.4.x
+            RubyVersion::Ruby340 => Box::new(Ruby340),
+            RubyVersion::Ruby341 => Box::new(Ruby341),
+            RubyVersion::Ruby342 => Box::new(Ruby342),
+            RubyVersion::Ruby343 => Box::new(Ruby343),
+            RubyVersion::Ruby344 => Box::new(Ruby344),
         };
 
         RubyAPI { inner }
@@ -480,6 +518,18 @@ pub fn detect_ruby_version() -> RubyVersion {
             RubyVersion::Ruby337
         } else if version_str.starts_with("3.3.8") {
             RubyVersion::Ruby338
+
+        // Ruby 3.4.x
+        } else if version_str.starts_with("3.4.0") {
+            RubyVersion::Ruby340
+        } else if version_str.starts_with("3.4.1") {
+            RubyVersion::Ruby341
+        } else if version_str.starts_with("3.4.2") {
+            RubyVersion::Ruby342
+        } else if version_str.starts_with("3.4.3") {
+            RubyVersion::Ruby343
+        } else if version_str.starts_with("3.4.4") {
+            RubyVersion::Ruby344
         } else {
             panic!("Unknown Ruby version: {}", version_str);
         }
