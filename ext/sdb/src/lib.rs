@@ -175,5 +175,6 @@ extern "C" fn Init_sdb() {
         define_ruby_method!(sdb_tester, "ec_from_thread", rb_get_ec_from_thread, 1);
         define_ruby_method!(sdb_tester, "iseqs_from_ec", rb_get_iseqs, 1);
         define_ruby_method!(sdb_tester, "is_iseq_imemo", rb_is_iseq_imemo, 1);
+        define_ruby_method!(sdb_tester, "iseq_info", rb_get_iseq_info, 1);
     }
 }

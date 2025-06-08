@@ -36,4 +36,15 @@ RSpec.describe 'RubyVersion' do
     expect(is_imemo).to eq [false, true, true, true, true, false]
     thread.kill
   end
+
+  it 'Get Iseq Info' do
+    thread = Thread.new { foo }
+    ec = SdbTester.ec_from_thread(thread)
+    sleep 0.1
+    iseqs = SdbTester.iseqs_from_ec(ec)
+
+    expect(SdbTester.iseq_info(iseqs[1])).to eq ['bar', __FILE__]
+    expect(SdbTester.iseq_info(iseqs[2])).to eq ['foo', __FILE__]
+    expect(SdbTester.iseq_info(iseqs[3])).to eq ['block (3 levels) in <top (required)>', __FILE__]
+  end
 end
