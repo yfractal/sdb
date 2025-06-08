@@ -21,25 +21,23 @@ macro_rules! impl_ruby_str_to_rust_str {
             let flags = str_ref.basic.flags;
 
             if flags & RSTRING_HEAP_FLAGS != 0 {
-                println!("Heap string");
-                // Heap string
-                let len = (str_ref.as_.heap.aux.capa & 0x7F) as usize;
+                // For heap strings, we need to use strlen to find the end of the string
+                // because the length is not readily available in rbspy structs
                 let ptr = str_ref.as_.heap.ptr;
 
-                if ptr.is_null() || len == 0 {
+                if ptr.is_null() {
                     None
                 } else {
-                    // len - 1 for removing the last \0
-                    if *ptr.add(len - 1) == 0 {
-                        let bytes = std::slice::from_raw_parts(ptr as *const u8, len - 1);
-                        Some(String::from_utf8_lossy(bytes).into_owned())
+                    // Use strlen to find the length of the null-terminated string
+                    let len = unsafe { libc::strlen(ptr) };
+                    if len == 0 {
+                        Some(String::new())
                     } else {
                         let bytes = std::slice::from_raw_parts(ptr as *const u8, len);
                         Some(String::from_utf8_lossy(bytes).into_owned())
                     }
                 }
             } else {
-                println!("Embedded string");
                 // Embedded string
                 let ary = str_ref.as_.embed.ary.as_ptr();
                 let mut len = 0;
