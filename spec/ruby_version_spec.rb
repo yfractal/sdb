@@ -15,14 +15,25 @@ RSpec.describe 'RubyVersion' do
     expect(ec).not_to eq nil
   end
 
-  describe 'Get iseqs from execution context' do
-    it 'Get iseqs from execution context' do
-      thread = Thread.new { foo }
-      ec = SdbTester.ec_from_thread(thread)
-      sleep 0.1
-      iseqs = SdbTester.iseqs_from_ec(ec)
-      expect(iseqs.count).to be >= 2
-      thread.kill
+  it 'Get iseqs from execution context' do
+    thread = Thread.new { foo }
+    ec = SdbTester.ec_from_thread(thread)
+    sleep 0.1
+    iseqs = SdbTester.iseqs_from_ec(ec)
+    expect(iseqs.count).to be >= 2
+    thread.kill
+  end
+
+  it 'Test is_iseq_imemo' do
+    thread = Thread.new { foo }
+    ec = SdbTester.ec_from_thread(thread)
+    sleep 0.1
+    iseqs = SdbTester.iseqs_from_ec(ec)
+    is_imemo = iseqs.map do |iseq|
+      SdbTester.is_iseq_imemo(iseq)
     end
+
+    expect(is_imemo).to eq [false, true, true, true, true, false]
+    thread.kill
   end
 end

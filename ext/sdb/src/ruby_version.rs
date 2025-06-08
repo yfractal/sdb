@@ -99,6 +99,10 @@ macro_rules! impl_iseq_functions {
 
         #[inline]
         unsafe fn is_iseq_imemo(&self, iseq_ptr: *const c_void) -> bool {
+            if iseq_ptr.is_null() {
+                return false;
+            }
+
             use $iseq_struct as rb_iseq_struct;
             let iseq = &*(iseq_ptr as *const rb_iseq_struct);
             const FL_USHIFT: usize = 12;

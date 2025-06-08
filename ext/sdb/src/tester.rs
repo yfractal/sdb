@@ -1,4 +1,4 @@
-use rb_sys::{VALUE, rb_int2inum, rb_num2long, rb_ary_new, rb_ary_push};
+use rb_sys::{VALUE, rb_int2inum, rb_num2long, rb_ary_new, rb_ary_push, Qtrue, Qfalse};
 use libc::{c_char, c_int, c_long, c_void};
 
 
@@ -16,4 +16,14 @@ pub(crate) unsafe extern "C" fn rb_get_iseqs(_module: VALUE, ec_val: VALUE) -> V
     });
 
     array
+}
+
+pub(crate) unsafe extern "C" fn rb_is_iseq_imemo(_module: VALUE, iseq_val: VALUE) -> VALUE {
+    let iseq = rb_num2long(iseq_val) as *const c_void;
+
+    if crate::stack_scanner::RUBY_API.is_iseq_imemo(iseq) {
+        Qtrue.into()
+    } else {
+        Qfalse.into()
+    }
 }
