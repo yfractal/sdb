@@ -173,7 +173,10 @@ pub struct Ruby315;
 impl RubyApiCompat for Ruby315 {
     impl_iseq_functions!(rbspy_ruby_structs::ruby_3_1_5::rb_iseq_struct);
     impl_thread_functions!(rbspy_ruby_structs::ruby_3_1_5::rb_thread_t);
-    impl_control_frame_functions!(rbspy_ruby_structs::ruby_3_1_5::rb_control_frame_struct, rbspy_ruby_structs::ruby_3_1_5::rb_execution_context_struct);
+    impl_control_frame_functions!(
+        rbspy_ruby_structs::ruby_3_1_5::rb_control_frame_struct,
+        rbspy_ruby_structs::ruby_3_1_5::rb_execution_context_struct
+    );
     impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_1_5::RString);
 }
 
@@ -182,7 +185,10 @@ pub struct Ruby322;
 impl RubyApiCompat for Ruby322 {
     impl_iseq_functions!(rbspy_ruby_structs::ruby_3_2_5::rb_iseq_struct);
     impl_thread_functions!(rbspy_ruby_structs::ruby_3_2_5::rb_thread_t);
-    impl_control_frame_functions!(rbspy_ruby_structs::ruby_3_2_5::rb_control_frame_struct, rbspy_ruby_structs::ruby_3_2_5::rb_execution_context_struct);
+    impl_control_frame_functions!(
+        rbspy_ruby_structs::ruby_3_2_5::rb_control_frame_struct,
+        rbspy_ruby_structs::ruby_3_2_5::rb_execution_context_struct
+    );
 
     impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_2_5::RString);
 }
@@ -192,7 +198,10 @@ pub struct Ruby330;
 impl RubyApiCompat for Ruby330 {
     impl_iseq_functions!(rbspy_ruby_structs::ruby_3_3_1::rb_iseq_struct);
     impl_thread_functions!(rbspy_ruby_structs::ruby_3_3_1::rb_thread_t);
-    impl_control_frame_functions!(rbspy_ruby_structs::ruby_3_3_1::rb_control_frame_struct, rbspy_ruby_structs::ruby_3_3_1::rb_execution_context_struct);
+    impl_control_frame_functions!(
+        rbspy_ruby_structs::ruby_3_3_1::rb_control_frame_struct,
+        rbspy_ruby_structs::ruby_3_3_1::rb_execution_context_struct
+    );
 
     impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_3_1::RString);
 }
