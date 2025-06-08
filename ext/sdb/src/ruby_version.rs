@@ -155,7 +155,9 @@ macro_rules! impl_control_frame_functions {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RubyVersion {
+    Ruby310,
     Ruby315,
+    Ruby320,
     Ruby322,
     Ruby330,
 }
@@ -172,6 +174,19 @@ pub trait RubyApiCompat: Send + Sync {
     unsafe fn iterate_frame_iseqs(&self, ec_val: VALUE, frame_handler: &mut dyn FnMut(u64));
 }
 
+pub struct Ruby310;
+
+impl RubyApiCompat for Ruby310 {
+    impl_iseq_functions!(rbspy_ruby_structs::ruby_3_1_0::rb_iseq_struct);
+    impl_thread_functions!(rbspy_ruby_structs::ruby_3_1_0::rb_thread_t);
+    impl_control_frame_functions!(
+        rbspy_ruby_structs::ruby_3_1_0::rb_control_frame_struct,
+        rbspy_ruby_structs::ruby_3_1_0::rb_execution_context_struct
+    );
+
+    impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_1_0::RString);
+}
+
 pub struct Ruby315;
 
 impl RubyApiCompat for Ruby315 {
@@ -182,6 +197,19 @@ impl RubyApiCompat for Ruby315 {
         rbspy_ruby_structs::ruby_3_1_5::rb_execution_context_struct
     );
     impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_1_5::RString);
+}
+
+pub struct Ruby320;
+
+impl RubyApiCompat for Ruby320 {
+    impl_iseq_functions!(rbspy_ruby_structs::ruby_3_2_0::rb_iseq_struct);
+    impl_thread_functions!(rbspy_ruby_structs::ruby_3_2_0::rb_thread_t);
+    impl_control_frame_functions!(
+        rbspy_ruby_structs::ruby_3_2_0::rb_control_frame_struct,
+        rbspy_ruby_structs::ruby_3_2_0::rb_execution_context_struct
+    );
+
+    impl_ruby_str_to_rust_str!(rbspy_ruby_structs::ruby_3_2_0::RString);
 }
 
 pub struct Ruby322;
@@ -218,7 +246,9 @@ pub struct RubyAPI {
 impl RubyAPI {
     pub fn new(version: RubyVersion) -> Self {
         let inner: Box<dyn RubyApiCompat> = match version {
+            RubyVersion::Ruby310 => Box::new(Ruby310),
             RubyVersion::Ruby315 => Box::new(Ruby315),
+            RubyVersion::Ruby320 => Box::new(Ruby320),
             RubyVersion::Ruby322 => Box::new(Ruby322),
             RubyVersion::Ruby330 => Box::new(Ruby330),
         };
@@ -269,18 +299,18 @@ pub fn detect_ruby_version() -> RubyVersion {
     unsafe {
         let version_str = get_ruby_version_string();
 
-        if version_str.starts_with("3.1.5") {
+        if version_str.starts_with("3.1.0") {
+            RubyVersion::Ruby310
+        } else if version_str.starts_with("3.1.5") {
             RubyVersion::Ruby315
-        } else if version_str.starts_with("3.2.") {
+        } else if version_str.starts_with("3.2.0") {
+            RubyVersion::Ruby320
+        } else if version_str.starts_with("3.2.2") {
             RubyVersion::Ruby322
-        } else if version_str.starts_with("3.3.") {
+        } else if version_str.starts_with("3.3.0") {
             RubyVersion::Ruby330
         } else {
-            log::warn!(
-                "Unknown Ruby version: {}, falling back to 3.1.5 structs",
-                version_str
-            );
-            RubyVersion::Ruby315
+            panic!("Unknown Ruby version: {}", version_str);
         }
     }
 }
