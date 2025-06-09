@@ -1,5 +1,5 @@
 use crate::helpers::*;
-use crate::iseq_logger::*;
+use crate::logger::*;
 use crate::ruby_version::*;
 use crate::trace_id::*;
 use std::sync::atomic::AtomicU64;
@@ -40,7 +40,7 @@ pub struct StackScanner {
     ecs: Vec<VALUE>,
     threads: Vec<VALUE>,
     sleep_nanos: u64,
-    iseq_logger: IseqLogger,
+    logger: Logger,
     pause: bool,
     iseq_buffer: HashSet<u64>,
     translated_iseq: HashMap<u64, bool>,
@@ -53,7 +53,7 @@ impl StackScanner {
             ecs: Vec::new(),
             threads: Vec::new(),
             sleep_nanos: 0,
-            iseq_logger: IseqLogger::new(),
+            logger: Logger::new(),
             pause: false,
             iseq_buffer: HashSet::new(),
             translated_iseq: HashMap::new(),
@@ -78,7 +78,7 @@ impl StackScanner {
     #[inline]
     pub fn stop(&mut self) {
         self.should_stop = true;
-        self.iseq_logger.flush();
+        self.logger.flush();
     }
 
     #[inline]
@@ -110,7 +110,7 @@ impl StackScanner {
 
                 let (label_str, path_str) = RUBY_API.get_iseq_info(iseq);
 
-                self.iseq_logger.log(&format!(
+                self.logger.log(&format!(
                     "[symbol] {}, {}, {}",
                     iseq,
                     label_str.unwrap_or("".to_string()),
@@ -119,7 +119,7 @@ impl StackScanner {
                 self.translated_iseq.insert(iseq, true);
             }
 
-            self.iseq_logger.flush();
+            self.logger.flush();
         }
     }
 
@@ -155,8 +155,8 @@ unsafe extern "C" fn record_thread_frames(
     let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
 
-    stack_scanner.iseq_logger.push(trace_id);
-    stack_scanner.iseq_logger.push(ts as u64);
+    stack_scanner.logger.push(trace_id);
+    stack_scanner.logger.push(ts as u64);
 
     // Use the new closure-based API
     let mut frame_handler = |iseq_addr: u64| {
@@ -164,12 +164,12 @@ unsafe extern "C" fn record_thread_frames(
             return;
         } else {
             stack_scanner.iseq_buffer.insert(iseq_addr);
-            stack_scanner.iseq_logger.push(iseq_addr);
+            stack_scanner.logger.push(iseq_addr);
         }
     };
 
     RUBY_API.iterate_frame_iseqs(ec_val, &mut frame_handler);
-    stack_scanner.iseq_logger.push_seperator();
+    stack_scanner.logger.push_seperator();
 
     true
 }
