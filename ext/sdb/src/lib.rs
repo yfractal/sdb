@@ -27,11 +27,6 @@ lazy_static! {
         unsafe { rb_define_module("Sdb\0".as_ptr() as *const c_char) as u64 };
 }
 
-pub(crate) unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
-    init_logger();
-    return Qnil as VALUE;
-}
-
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
     // acquire stack_scanner lock for blocking the scanning
     let mut stack_scanner = STACK_SCANNER.lock();
@@ -155,6 +150,7 @@ extern "C" fn Init_sdb() {
             1
         );
         define_ruby_method!(module, "init_logger", rb_init_logger, 0);
+        define_ruby_method!(module, "log_request", rb_log_request, 1);
         define_ruby_method!(
             module,
             "log_uptime_and_clock_time",

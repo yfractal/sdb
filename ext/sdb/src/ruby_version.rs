@@ -457,6 +457,10 @@ impl RubyAPI {
         self.inner.get_first_lineno(iseq_addr)
     }
 
+    pub unsafe fn ruby_str_to_rust_str(&self, ruby_str: VALUE) -> Option<String> {
+        self.inner.ruby_str_to_rust_str(ruby_str)
+    }
+
     pub unsafe fn get_label(&self, iseq_addr: u64) -> VALUE {
         self.inner.get_label(iseq_addr)
     }

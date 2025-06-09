@@ -110,8 +110,8 @@ impl StackScanner {
 
                 let (label_str, path_str) = RUBY_API.get_iseq_info(iseq);
 
-                self.logger.log(&format!(
-                    "[symbol] {}, {}, {}",
+                Logger::log_symbol(&format!(
+                    "{}, {}, {}",
                     iseq,
                     label_str.unwrap_or("".to_string()),
                     path_str.unwrap_or("".to_string())
