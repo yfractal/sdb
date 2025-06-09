@@ -19,6 +19,15 @@ impl Logger {
         }
     }
 
+    pub fn init() -> &'static fast_log::Logger {
+        fast_log::init(
+            Config::new()
+                .file("sdb.log")
+                .chan_len(Some(FAST_LOG_CHAN_LEN)),
+        )
+        .unwrap()
+    }
+
     #[inline]
     pub fn push(&mut self, item: u64) {
         if self.buffer_index < self.buffer_size {
@@ -55,17 +64,6 @@ impl Logger {
     #[inline]
     pub fn log_request(str: &str) {
         log::info!("[{}][request]{}", std::process::id(), str);
-    }
-
-    pub fn init() -> &'static fast_log::Logger {
-        // TODO: check why unwrap may panic in rspec
-        // reproduce: RUST_BACKTRACE=1 bundle exec rspec spec/sdb_spec.rb
-        fast_log::init(
-            Config::new()
-                .file("sdb.log")
-                .chan_len(Some(FAST_LOG_CHAN_LEN)),
-        )
-        .unwrap()
     }
 }
 
