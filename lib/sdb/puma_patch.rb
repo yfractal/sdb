@@ -28,7 +28,17 @@ module Sdb
         rv = super
         t1 = Time.now
         cpu_time1 = CPUTime.time
-        Sdb.log("[SDB][application][puma][#{trace_id}]: thread_id=#{Thread.current.native_thread_id}, start_ts=#{t0.to_f * 1_000_000}, end_ts=#{t1.to_f * 1_000_000}, cpu_time_ms=#{(cpu_time1 - cpu_time0) * 1000 }, status=#{Thread.current[:sdb][:status]}")
+
+        log = {
+          trace_id: trace_id,
+          thread_id: Thread.current.native_thread_id,
+          start_ts: (t0.to_f * 1_000_000).to_i,
+          end_ts: (t1.to_f * 1_000_000).to_i,
+          cpu_time_ms: (cpu_time1 - cpu_time0) * 1000,
+          status: Thread.current[:sdb][:status]
+        }
+
+        Sdb.log("[SDB][application][puma]: #{log.to_json}")
 
         rv
       ensure
