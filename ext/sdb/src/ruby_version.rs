@@ -13,6 +13,11 @@ macro_rules! impl_ruby_str_to_rust_str {
             use $rstring_type as RString;
 
             let str_ptr = ruby_str as *const RString;
+
+            if ruby_str == 0 {
+                return None;
+            }
+
             if str_ptr.is_null() {
                 return None;
             }
@@ -29,7 +34,8 @@ macro_rules! impl_ruby_str_to_rust_str {
                     None
                 } else {
                     // Use strlen to find the length of the null-terminated string
-                    let len = unsafe { libc::strlen(ptr) };
+                    let len = rb_sys::RSTRING_LEN(ruby_str) as usize;
+
                     if len == 0 {
                         Some(String::new())
                     } else {
@@ -68,7 +74,7 @@ macro_rules! impl_iseq_functions {
             let label_str = self.ruby_str_to_rust_str(label);
 
             let path = body.location.pathobj as VALUE;
-            let path_str = self.ruby_str_to_rust_str(path);
+            let path_str = self.extract_path_string(path);
 
             (label_str, path_str)
         }
@@ -95,6 +101,30 @@ macro_rules! impl_iseq_functions {
             let iseq = &*(iseq_addr as *const rb_iseq_struct);
             let body = &*iseq.body;
             body.location.base_label as VALUE
+        }
+
+        #[inline]
+        unsafe fn extract_path_string(&self, path: VALUE) -> Option<String> {
+            if path == 0 {
+                return None;
+            }
+
+            let basic_flags = *(path as *const rb_sys::RBasic);
+            let obj_type = basic_flags.flags & (rb_sys::RUBY_T_MASK as u64);
+
+            if obj_type == rb_sys::RUBY_T_STRING as u64 {
+                self.ruby_str_to_rust_str(path)
+            } else if obj_type == rb_sys::RUBY_T_ARRAY as u64 {
+                let array_len = rb_sys::RARRAY_LEN(path);
+                if array_len >= 1 {
+                    let path_val = rb_sys::rb_ary_entry(path, 0);
+                    self.ruby_str_to_rust_str(path_val)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         }
 
         #[inline]
@@ -201,6 +231,7 @@ pub trait RubyApiCompat: Send + Sync {
     unsafe fn get_label(&self, iseq_addr: u64) -> VALUE;
     unsafe fn get_base_label(&self, iseq_addr: u64) -> VALUE;
     unsafe fn ruby_str_to_rust_str(&self, ruby_str: VALUE) -> Option<String>;
+    unsafe fn extract_path_string(&self, path: VALUE) -> Option<String>;
     unsafe fn is_iseq_imemo(&self, iseq_ptr: *const c_void) -> bool;
     unsafe fn get_ec_from_thread(&self, thread_val: VALUE) -> *mut c_void;
     fn get_control_frame_struct_size(&self) -> usize;
