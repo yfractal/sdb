@@ -62,7 +62,7 @@ impl Logger {
     }
 
     #[inline]
-    pub fn log_request(str: &str) {
+    pub fn log(str: &str) {
         log::info!("[{}][request]{}", std::process::id(), str);
     }
 }
@@ -72,9 +72,9 @@ pub unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
     return Qtrue as VALUE;
 }
 
-pub unsafe extern "C" fn rb_log_request(_module: VALUE, log: VALUE) -> VALUE {
+pub unsafe extern "C" fn rb_log(_module: VALUE, log: VALUE) -> VALUE {
     let str = crate::stack_scanner::RUBY_API.ruby_str_to_rust_str(log);
-    Logger::log_request(str.unwrap_or("".to_string()).as_str());
+    Logger::log(str.unwrap_or("".to_string()).as_str());
 
     return Qtrue as VALUE;
 }

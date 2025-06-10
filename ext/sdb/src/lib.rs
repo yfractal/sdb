@@ -150,7 +150,7 @@ extern "C" fn Init_sdb() {
             1
         );
         define_ruby_method!(module, "init_logger", rb_init_logger, 0);
-        define_ruby_method!(module, "log_request", rb_log_request, 1);
+        define_ruby_method!(module, "log", rb_log, 1);
         define_ruby_method!(
             module,
             "log_uptime_and_clock_time",
