@@ -1,8 +1,6 @@
 use crate::helpers::*;
 use crate::logger::*;
 use crate::ruby_version::*;
-use crate::trace_id::*;
-use std::sync::atomic::AtomicU64;
 
 use chrono::Utc;
 use libc::c_void;
@@ -146,16 +144,8 @@ impl StackScanner {
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-unsafe extern "C" fn record_thread_frames(
-    thread_val: VALUE,
-    ec_val: VALUE,
-    trace_table: &HashMap<u64, AtomicU64>,
-    stack_scanner: &mut StackScanner,
-) -> bool {
-    let trace_id = get_trace_id(trace_table, thread_val);
+unsafe extern "C" fn record_thread_frames(ec_val: VALUE, stack_scanner: &mut StackScanner) -> bool {
     let ts = Utc::now().timestamp_micros();
-
-    stack_scanner.logger.push(trace_id);
     stack_scanner.logger.push(ts as u64);
 
     // Use the new closure-based API
@@ -200,8 +190,6 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 #[inline]
 // co-work with pull_loop
 unsafe extern "C" fn looping_helper() -> bool {
-    let trace_table = get_trace_id_table();
-
     loop {
         let mut i = 0;
 
@@ -222,8 +210,7 @@ unsafe extern "C" fn looping_helper() -> bool {
 
         while i < len {
             let ec = stack_scanner.ecs[i];
-            let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut stack_scanner);
+            record_thread_frames(ec, &mut stack_scanner);
             i += 1;
         }
 

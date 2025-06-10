@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require 'cpu_time'
+require 'securerandom'
 
 module Sdb
   module PumaPatch
@@ -16,18 +19,19 @@ module Sdb
       def handle_request(client, requests)
         t0 = Time.now
         cpu_time0 = CPUTime.time
-        trace_id = client.env['HTTP_TRACE_ID'].to_i
-        Sdb.set_trace_id(Thread.current, trace_id)
-        Thread.current[:sdb] = {}
+        trace_id = client.env['HTTP_TRACE_ID']
+        trace_id ||= SecureRandom.hex(16)
+
+        Thread.current[:sdb] ||= {}
         Thread.current[:sdb][:trace_id] = trace_id
+
         rv = super
         t1 = Time.now
         cpu_time1 = CPUTime.time
-        Sdb.log("[SDB][puma-delay][#{trace_id}]: thread_id=#{Thread.current.native_thread_id}, start_ts=#{t0.to_f * 1_000_000}, end_ts=#{t1.to_f * 1_000_000}, cpu_time_ms=#{(cpu_time1 - cpu_time0) * 1000 }, status=#{Thread.current[:sdb][:status]}")
+        Sdb.log("[SDB][application][puma][#{trace_id}]: thread_id=#{Thread.current.native_thread_id}, start_ts=#{t0.to_f * 1_000_000}, end_ts=#{t1.to_f * 1_000_000}, cpu_time_ms=#{(cpu_time1 - cpu_time0) * 1000 }, status=#{Thread.current[:sdb][:status]}")
 
         rv
       ensure
-        Sdb.set_trace_id(Thread.current, 0)
         Thread.current[:sdb] = {}
       end
 

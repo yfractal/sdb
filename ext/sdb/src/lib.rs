@@ -4,7 +4,6 @@ mod logger;
 mod ruby_version;
 mod stack_scanner;
 mod tester;
-mod trace_id;
 
 use libc::c_char;
 use rb_sys::{
@@ -18,7 +17,6 @@ use logger::*;
 use stack_scanner::*;
 use std::os::raw::c_void;
 use tester::*;
-use trace_id::*;
 
 use lazy_static::lazy_static;
 
@@ -128,7 +126,6 @@ extern "C" fn Init_sdb() {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
         define_ruby_method!(module, "pull", rb_pull, 1);
-        define_ruby_method!(module, "set_trace_id", rb_set_trace_id, 2);
         define_ruby_method!(module, "log_gvl_addr_for_thread", rb_log_gvl_addr, 1);
         define_ruby_method!(
             module,

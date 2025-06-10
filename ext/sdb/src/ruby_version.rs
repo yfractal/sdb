@@ -3,7 +3,6 @@ use rb_sys::VALUE;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
-const MAX_STR_LENGTH: usize = 127;
 const RSTRING_HEAP_FLAGS: usize = 1 << 13;
 
 macro_rules! impl_ruby_str_to_rust_str {
@@ -46,14 +45,7 @@ macro_rules! impl_ruby_str_to_rust_str {
             } else {
                 // Embedded string
                 let ary = str_ref.as_.embed.ary.as_ptr();
-                let mut len = 0;
-
-                for i in 0..MAX_STR_LENGTH {
-                    if *ary.add(i) == 0 {
-                        break;
-                    }
-                    len += 1;
-                }
+                let len = rb_sys::RSTRING_LEN(ruby_str) as usize;
 
                 let bytes = std::slice::from_raw_parts(ary as *const u8, len);
                 Some(String::from_utf8_lossy(bytes).into_owned())
