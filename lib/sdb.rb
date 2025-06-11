@@ -85,6 +85,7 @@ module Sdb
         @active_threads.delete(thread)
         if @scan_config[:filter]
           threads_to_scan = @active_threads.filter(&@scan_config[:filter]).to_a
+
           self.update_threads_to_scan(threads_to_scan)
         end
       end

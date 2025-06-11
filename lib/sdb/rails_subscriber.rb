@@ -14,6 +14,7 @@ module Sdb
           trace_id = Thread.current[:sdb][:trace_id]
           log = {
             trace_id: trace_id,
+            thread_id: Thread.current.native_thread_id,
             controller: payload[:controller],
             action: payload[:action],
             path: payload[:path]

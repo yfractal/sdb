@@ -36,6 +36,7 @@ lazy_static! {
 pub struct StackScanner {
     should_stop: bool,
     ecs: Vec<VALUE>,
+    rb_thread_ids: Vec<u64>,
     threads: Vec<VALUE>,
     sleep_nanos: u64,
     logger: Logger,
@@ -49,6 +50,7 @@ impl StackScanner {
         StackScanner {
             should_stop: false,
             ecs: Vec::new(),
+            rb_thread_ids: Vec::new(),
             threads: Vec::new(),
             sleep_nanos: 0,
             logger: Logger::new(),
@@ -134,6 +136,10 @@ impl StackScanner {
             if thread != current_thread && thread != (Qnil as VALUE) {
                 self.threads.push(thread);
                 let ec = RUBY_API.get_ec_from_thread(thread);
+
+                let rb_thread_id = rb_native_thread_id(thread);
+                self.rb_thread_ids.push(rb_thread_id);
+
                 self.ecs.push(ec as VALUE);
             }
 
@@ -144,8 +150,13 @@ impl StackScanner {
 
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
-unsafe extern "C" fn record_thread_frames(ec_val: VALUE, stack_scanner: &mut StackScanner) -> bool {
+unsafe extern "C" fn record_thread_frames(
+    ec_val: VALUE,
+    rb_thread_id: VALUE,
+    stack_scanner: &mut StackScanner,
+) -> bool {
     let ts = Utc::now().timestamp_micros();
+    stack_scanner.logger.push(rb_thread_id as u64);
     stack_scanner.logger.push(ts as u64);
 
     // Use the new closure-based API
@@ -210,7 +221,8 @@ unsafe extern "C" fn looping_helper() -> bool {
 
         while i < len {
             let ec = stack_scanner.ecs[i];
-            record_thread_frames(ec, &mut stack_scanner);
+            let rb_thread_id = stack_scanner.rb_thread_ids[i];
+            record_thread_frames(ec, rb_thread_id, &mut stack_scanner);
             i += 1;
         }
 
