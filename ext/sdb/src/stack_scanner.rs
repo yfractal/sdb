@@ -268,13 +268,14 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     }
 }
 
-pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) -> VALUE {
+pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds_rb: VALUE) -> VALUE {
+    let sleep_seconds = rb_num2dbl(sleep_seconds_rb);
     log::debug!(
-        "[scanner][main] start to pull sleep_seconds = {:?}",
+        "[scanner][main] stack scanning interval = {:?}",
         sleep_seconds
     );
 
-    let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
+    let sleep_nanos = (sleep_seconds * 1_000_000_000.0) as u64;
 
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.sleep_nanos = sleep_nanos;
