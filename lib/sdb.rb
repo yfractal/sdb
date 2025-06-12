@@ -4,6 +4,7 @@ require_relative "sdb/version"
 require_relative "sdb/sdb"
 require_relative "sdb/puma_patch"
 require_relative "sdb/thread_patch"
+require_relative "sdb/rails_subscriber"
 
 module Sdb
   class << self
@@ -11,11 +12,13 @@ module Sdb
       current_version = Gem::Version.new(RUBY_VERSION)
       min_version = Gem::Version.new('3.1.0')
       max_version = Gem::Version.new('3.4.4')
-      
+
       unless current_version >= min_version && current_version <= max_version
         raise "Unsupported ruby version: #{RUBY_VERSION}. Supported versions: > 3.1.0 and <= 3.4.4"
       end
-      
+
+      Sdb::RailsSubscriber.subscribe
+
       self.log_uptime_and_clock_time
       @initialized = true
       @active_threads = []
@@ -82,6 +85,7 @@ module Sdb
         @active_threads.delete(thread)
         if @scan_config[:filter]
           threads_to_scan = @active_threads.filter(&@scan_config[:filter]).to_a
+
           self.update_threads_to_scan(threads_to_scan)
         end
       end

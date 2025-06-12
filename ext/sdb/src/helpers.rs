@@ -50,3 +50,14 @@ pub(crate) unsafe extern "C" fn rb_base_label_from_iseq_addr(
 
     crate::stack_scanner::RUBY_API.get_base_label(iseq_addr)
 }
+
+pub(crate) unsafe extern "C" fn rb_native_thread_id(thread: VALUE) -> u64 {
+    let argv: &[VALUE; 0] = &[];
+    let rb_thread_val = call_method(thread, "native_thread_id", 0, argv);
+
+    if rb_thread_val == (Qnil as VALUE) {
+        0
+    } else {
+        rb_sys::rb_num2ulong(rb_thread_val)
+    }
+}

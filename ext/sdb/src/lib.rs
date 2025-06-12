@@ -1,11 +1,9 @@
 mod gvl;
 mod helpers;
-mod iseq_logger;
 mod logger;
 mod ruby_version;
 mod stack_scanner;
 mod tester;
-mod trace_id;
 
 use libc::c_char;
 use rb_sys::{
@@ -19,18 +17,12 @@ use logger::*;
 use stack_scanner::*;
 use std::os::raw::c_void;
 use tester::*;
-use trace_id::*;
 
 use lazy_static::lazy_static;
 
 lazy_static! {
     static ref SDB_MODULE: u64 =
         unsafe { rb_define_module("Sdb\0".as_ptr() as *const c_char) as u64 };
-}
-
-pub(crate) unsafe extern "C" fn rb_init_logger(_module: VALUE) -> VALUE {
-    init_logger();
-    return Qnil as VALUE;
 }
 
 extern "C" fn gc_enter_callback(_trace_point: VALUE, _data: *mut c_void) {
@@ -134,7 +126,6 @@ extern "C" fn Init_sdb() {
         let module = rb_define_module("Sdb\0".as_ptr() as *const c_char);
 
         define_ruby_method!(module, "pull", rb_pull, 1);
-        define_ruby_method!(module, "set_trace_id", rb_set_trace_id, 2);
         define_ruby_method!(module, "log_gvl_addr_for_thread", rb_log_gvl_addr, 1);
         define_ruby_method!(
             module,
@@ -156,6 +147,7 @@ extern "C" fn Init_sdb() {
             1
         );
         define_ruby_method!(module, "init_logger", rb_init_logger, 0);
+        define_ruby_method!(module, "log", rb_log, 1);
         define_ruby_method!(
             module,
             "log_uptime_and_clock_time",

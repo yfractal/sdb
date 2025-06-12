@@ -1,13 +1,17 @@
+# frozen_string_literal: true
+
 require 'cpu_time'
+require 'securerandom'
 
 module Sdb
   module PumaPatch
     class << self
-      attr_accessor :logger
+      def patch
+        Puma::Server.prepend(HandleRequest) if puma_detected?
+      end
 
-      def patch(logger)
-        Puma::Server.prepend(HandleRequest)
-        self.logger = logger
+      def puma_detected?
+        defined?(Puma) && (defined?(Puma::Server) || defined?(Puma::Cluster))
       end
     end
 
@@ -15,17 +19,29 @@ module Sdb
       def handle_request(client, requests)
         t0 = Time.now
         cpu_time0 = CPUTime.time
-        trace_id = client.env['HTTP_TRACE_ID'].to_i
-        Sdb.set_trace_id(Thread.current, trace_id)
-        Thread.current[:sdb] = {}
+        trace_id = client.env['HTTP_TRACE_ID']
+        trace_id ||= SecureRandom.hex(16)
+
+        Thread.current[:sdb] ||= {}
+        Thread.current[:sdb][:trace_id] = trace_id
+
         rv = super
         t1 = Time.now
         cpu_time1 = CPUTime.time
-        Sdb::PumaPatch.logger.info "[SDB][puma-delay]: trace_id=#{trace_id}, thread_id=#{Thread.current.native_thread_id}, remote_port=#{client.io.peeraddr[1]}, start_ts=#{t0.to_f * 1_000_000}, end_ts=#{t1.to_f * 1_000_000}, delay=#{(t1 - t0) * 1000} ms, cpu_time=#{(cpu_time1 - cpu_time0) * 1000 } ms, status=#{Thread.current[:sdb][:status]}"
+
+        log = {
+          trace_id: trace_id,
+          thread_id: Thread.current.native_thread_id,
+          start_ts: (t0.to_f * 1_000_000).to_i,
+          end_ts: (t1.to_f * 1_000_000).to_i,
+          cpu_time_ms: (cpu_time1 - cpu_time0) * 1000,
+          status: Thread.current[:sdb][:status]
+        }
+
+        Sdb.log("[SDB][application][puma]: #{log.to_json}")
 
         rv
       ensure
-        Sdb.set_trace_id(Thread.current, 0)
         Thread.current[:sdb] = {}
       end
 

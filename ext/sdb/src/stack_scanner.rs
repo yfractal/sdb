@@ -1,8 +1,6 @@
 use crate::helpers::*;
-use crate::iseq_logger::*;
+use crate::logger::*;
 use crate::ruby_version::*;
-use crate::trace_id::*;
-use std::sync::atomic::AtomicU64;
 
 use chrono::Utc;
 use libc::c_void;
@@ -38,9 +36,10 @@ lazy_static! {
 pub struct StackScanner {
     should_stop: bool,
     ecs: Vec<VALUE>,
+    rb_thread_ids: Vec<u64>,
     threads: Vec<VALUE>,
     sleep_nanos: u64,
-    iseq_logger: IseqLogger,
+    logger: Logger,
     pause: bool,
     iseq_buffer: HashSet<u64>,
     translated_iseq: HashMap<u64, bool>,
@@ -51,9 +50,10 @@ impl StackScanner {
         StackScanner {
             should_stop: false,
             ecs: Vec::new(),
+            rb_thread_ids: Vec::new(),
             threads: Vec::new(),
             sleep_nanos: 0,
-            iseq_logger: IseqLogger::new(),
+            logger: Logger::new(),
             pause: false,
             iseq_buffer: HashSet::new(),
             translated_iseq: HashMap::new(),
@@ -78,7 +78,7 @@ impl StackScanner {
     #[inline]
     pub fn stop(&mut self) {
         self.should_stop = true;
-        self.iseq_logger.flush();
+        self.logger.flush();
     }
 
     #[inline]
@@ -110,8 +110,8 @@ impl StackScanner {
 
                 let (label_str, path_str) = RUBY_API.get_iseq_info(iseq);
 
-                self.iseq_logger.log(&format!(
-                    "[symbol] {}, {}, {}",
+                Logger::log_symbol(&format!(
+                    "{}, {}, {}",
                     iseq,
                     label_str.unwrap_or("".to_string()),
                     path_str.unwrap_or("".to_string())
@@ -119,7 +119,7 @@ impl StackScanner {
                 self.translated_iseq.insert(iseq, true);
             }
 
-            self.iseq_logger.flush();
+            self.logger.flush();
         }
     }
 
@@ -128,6 +128,7 @@ impl StackScanner {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
         self.threads = [].to_vec();
         self.ecs = [].to_vec();
+        self.rb_thread_ids = [].to_vec();
 
         let mut i: isize = 0;
         while i < threads_count {
@@ -137,6 +138,9 @@ impl StackScanner {
                 self.threads.push(thread);
                 let ec = RUBY_API.get_ec_from_thread(thread);
                 self.ecs.push(ec as VALUE);
+
+                let rb_thread_id = rb_native_thread_id(thread);
+                self.rb_thread_ids.push(rb_thread_id);
             }
 
             i += 1;
@@ -147,16 +151,13 @@ impl StackScanner {
 #[inline]
 // Caller needs to guarantee the thread is alive until the end of this function
 unsafe extern "C" fn record_thread_frames(
-    thread_val: VALUE,
     ec_val: VALUE,
-    trace_table: &HashMap<u64, AtomicU64>,
+    rb_thread_id: VALUE,
     stack_scanner: &mut StackScanner,
 ) -> bool {
-    let trace_id = get_trace_id(trace_table, thread_val);
     let ts = Utc::now().timestamp_micros();
-
-    stack_scanner.iseq_logger.push(trace_id);
-    stack_scanner.iseq_logger.push(ts as u64);
+    stack_scanner.logger.push(rb_thread_id as u64);
+    stack_scanner.logger.push(ts as u64);
 
     // Use the new closure-based API
     let mut frame_handler = |iseq_addr: u64| {
@@ -164,12 +165,12 @@ unsafe extern "C" fn record_thread_frames(
             return;
         } else {
             stack_scanner.iseq_buffer.insert(iseq_addr);
-            stack_scanner.iseq_logger.push(iseq_addr);
+            stack_scanner.logger.push(iseq_addr);
         }
     };
 
     RUBY_API.iterate_frame_iseqs(ec_val, &mut frame_handler);
-    stack_scanner.iseq_logger.push_seperator();
+    stack_scanner.logger.push_seperator();
 
     true
 }
@@ -200,8 +201,6 @@ pub(crate) fn uptime_and_clock_time() -> (u64, i64) {
 #[inline]
 // co-work with pull_loop
 unsafe extern "C" fn looping_helper() -> bool {
-    let trace_table = get_trace_id_table();
-
     loop {
         let mut i = 0;
 
@@ -222,8 +221,8 @@ unsafe extern "C" fn looping_helper() -> bool {
 
         while i < len {
             let ec = stack_scanner.ecs[i];
-            let thread = stack_scanner.threads[i];
-            record_thread_frames(thread, ec, trace_table, &mut stack_scanner);
+            let rb_thread_id = stack_scanner.rb_thread_ids[i];
+            record_thread_frames(ec, rb_thread_id, &mut stack_scanner);
             i += 1;
         }
 
@@ -269,13 +268,14 @@ unsafe extern "C" fn pull_loop(_: *mut c_void) -> *mut c_void {
     }
 }
 
-pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds: VALUE) -> VALUE {
+pub(crate) unsafe extern "C" fn rb_pull(_module: VALUE, sleep_seconds_rb: VALUE) -> VALUE {
+    let sleep_seconds = rb_num2dbl(sleep_seconds_rb);
     log::debug!(
-        "[scanner][main] start to pull sleep_seconds = {:?}",
+        "[scanner][main] stack scanning interval = {:?}",
         sleep_seconds
     );
 
-    let sleep_nanos = (rb_num2dbl(sleep_seconds) * 1_000_000_000.0) as u64;
+    let sleep_nanos = (sleep_seconds * 1_000_000_000.0) as u64;
 
     let mut stack_scanner = STACK_SCANNER.lock();
     stack_scanner.sleep_nanos = sleep_nanos;
