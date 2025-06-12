@@ -128,6 +128,7 @@ impl StackScanner {
         let threads_count = RARRAY_LEN(threads_to_scan) as isize;
         self.threads = [].to_vec();
         self.ecs = [].to_vec();
+        self.rb_thread_ids = [].to_vec();
 
         let mut i: isize = 0;
         while i < threads_count {
@@ -136,11 +137,10 @@ impl StackScanner {
             if thread != current_thread && thread != (Qnil as VALUE) {
                 self.threads.push(thread);
                 let ec = RUBY_API.get_ec_from_thread(thread);
+                self.ecs.push(ec as VALUE);
 
                 let rb_thread_id = rb_native_thread_id(thread);
                 self.rb_thread_ids.push(rb_thread_id);
-
-                self.ecs.push(ec as VALUE);
             }
 
             i += 1;
