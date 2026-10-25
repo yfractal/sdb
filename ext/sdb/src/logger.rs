@@ -47,6 +47,10 @@ impl Logger {
 
     #[inline]
     pub fn flush(&mut self) {
+        if self.buffer_index == 0 {
+            return;
+        }
+
         log::info!(
             "[{}][stack_frames]{:?}",
             std::process::id(),
