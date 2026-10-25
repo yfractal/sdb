@@ -1,4 +1,4 @@
-use libc::c_void;
+use libc::{c_char, c_long, c_void};
 use rb_sys::{rb_ary_new, rb_ary_push, rb_int2inum, rb_num2long, rb_str_new, Qfalse, Qtrue, VALUE};
 
 pub(crate) unsafe extern "C" fn rb_get_ec_from_thread(_module: VALUE, thread: VALUE) -> VALUE {
@@ -28,7 +28,8 @@ pub(crate) unsafe extern "C" fn rb_is_iseq_imemo(_module: VALUE, iseq_val: VALUE
 }
 
 unsafe fn rust_to_ruby_string(rust_str: &str) -> VALUE {
-    rb_str_new(rust_str.as_ptr() as *const i8, rust_str.len() as i64)
+    // Use c_char (not i8): on aarch64 Linux c_char is u8, so *const i8 fails to compile.
+    rb_str_new(rust_str.as_ptr() as *const c_char, rust_str.len() as c_long)
 }
 
 pub(crate) unsafe extern "C" fn rb_get_iseq_info(_module: VALUE, iseq_val: VALUE) -> VALUE {
